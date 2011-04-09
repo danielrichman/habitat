@@ -38,6 +38,7 @@ import restkit.errors
 
 import habitat
 from habitat.message_server import Server
+from habitat.sensor_manager import SensorManager
 from habitat.http import SCGIApplication
 from habitat.utils import crashmat
 
@@ -60,7 +61,7 @@ config_section = "habitat"
 # other in that order.
 default_options = {"couch_uri": None, "couch_db": None, "socket_file": None,
                    "log_stderr_level": "WARN", "log_file": None,
-                   "log_file_level": None}
+                   "log_file_level": None, "secret": None}
 
 parser = optparse.OptionParser(usage=usage, version=version,
                                description=header)
@@ -77,6 +78,8 @@ parser.add_option("-d", "--couch-db", metavar="COUCH_DATABASE",
 parser.add_option("-s", "--socket", metavar="SCGI_SOCKET",
                   dest="socket_file",
                   help="scgi socket file to serve on")
+parser.add_option("--secret", metavar="SECRET", dest="secret",
+              help="secret used for signing hotfixes, best set in config file")
 parser.add_option("-v", "--verbosity", metavar="LOG_STDERR_LEVEL",
                   dest="log_stderr_level",
                   help="minimum loglevel to print on stderr, options: " +\
@@ -97,8 +100,8 @@ def get_options():
     configuration file (which must be in the :py:mod:`ConfigParser`
     format).
 
-    It will read :py:data:`default_configuration_file` and will ignore
-    any errors that occur while doing so, unless a different config
+    It will read default_configuration_file and will ignore any
+    errors that occur while doing so, unless a different config
     file is specified at the command line (failures on an explicitly
     stated config file will raise an execption).
 
@@ -159,7 +162,7 @@ def get_options_config(config_file):
         return dict(config.items(config_section))
 
 def get_options_check_required(options):
-    required_options = ["couch_uri", "couch_db", "socket_file"]
+    required_options = ["couch_uri", "couch_db", "socket_file", "secret"]
 
     if options["log_file"] != None or options["log_file_level"] != None:
         required_options += ["log_file", "log_file_level"]
@@ -204,6 +207,13 @@ def setup_logging(log_stderr_level, log_file_name, log_file_level):
     # Enable all messages at the logger level, then filter them in each
     # handler.
     root_logger.setLevel(logging.DEBUG)
+
+    # Bug pivotal:11844615, set restkit's level to WARNING to lower spam
+    # Due to nosetests being very odd, restkit_logger and logger_warning
+    #     are both nabbed at the top of this script and put into the global
+    #     namespace. nose appears to overwrite logging with a FakeLogging
+    #     module which lacks logging.WARNING and logging.getLogger(name)
+    logging.getLogger("restkit").setLevel(logging.WARNING)
 
     have_handlers = False
 
@@ -307,6 +317,7 @@ class Program(object):
         self.completed_logging_setup = True
         self.db = couch_connect(self.options['couch_uri'],
                                 self.options['couch_db'])
+        self.sensor_manager = SensorManager(self)
         self.server = Server(self)
         self.scgiapp = SCGIApplication(self.server, self,
                                        self.options["socket_file"])

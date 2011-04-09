@@ -22,6 +22,7 @@ The parser interprets incoming telemetry strings into useful telemetry data.
 import time
 import base64
 import logging
+import hashlib
 from copy import deepcopy
 
 from habitat.message_server import SimpleSink, Message
@@ -115,8 +116,8 @@ class ParserSink(SimpleSink):
         """
 
         data = None
-
-        raw_data = base64.b64decode(message.data["string"])
+        original_data = message.data["string"]
+        raw_data = base64.b64decode(original_data)
 
         # Try using real configs
         for module in self.modules:
@@ -133,7 +134,9 @@ class ParserSink(SimpleSink):
                     data["_protocol"] = module["name"]
                     data["_flight"] = config_doc["_id"]
                     break
-            except ValueError:
+            except ValueError as e:
+                err = "ValueError from {0}: '{1}'"
+                logger.debug(err.format(module["name"], e))
                 continue
 
         # If that didn't work, try using default configurations
@@ -141,6 +144,10 @@ class ParserSink(SimpleSink):
             for module in self.modules:
                 try:
                     config = module["default_config"]
+                except KeyError:
+                    continue
+
+                try:
                     data = self._pre_filter(raw_data, module)
                     callsign = module["module"].pre_parse(data)
                     data = self._intermediate_filter(data, config)
@@ -150,11 +157,13 @@ class ParserSink(SimpleSink):
                     data["_used_default_config"] = True
                     logger.info("Using a default configuration document")
                     break
-                except (ValueError, KeyError):
+                except ValueError as e:
+                    errstr = "Error from {0} with default config: '{1}'"
+                    logger.debug(errstr.format(module["name"], e))
                     continue
 
         if type(data) is dict:
-            data["_raw"] = message.data["string"]
+            data["_raw"] = original_data
 
             # Every key apart from string contains RECEIVED_TELEM metadata
             data["_listener_metadata"] = deepcopy(message.data)
@@ -165,10 +174,11 @@ class ParserSink(SimpleSink):
                                   data)
             self.server.push_message(new_message)
 
-            logger.debug("{module} parsed data from {callsign} succesfully" \
+            logger.info("{module} parsed data from {callsign} succesfully" \
                 .format(module=module["name"], callsign=callsign))
         else:
-            logger.debug("Unable to parse any data from '" + str(data) + "'")
+            logger.info("Unable to parse any data from '{d}'" \
+                .format(d=original_data))
 
     def _find_config_doc(self, callsign, time_created):
         """
@@ -187,9 +197,10 @@ class ParserSink(SimpleSink):
                                      include_docs=True,
                                      startkey=startkey).first()
         if not result or callsign not in result["doc"]["payloads"]:
-            logger.warning("No configuration document for "
-                           "callsign '{callsign}'".format(callsign=callsign))
-            raise ValueError("No configuration document found for callsign.")
+            err = "No configuration document for callsign '{0}' found."
+            err = err.format(callsign)
+            logger.warning(err)
+            raise ValueError(err)
         return result["doc"]
 
     def _pre_filter(self, data, module):
@@ -260,7 +271,25 @@ class ParserSink(SimpleSink):
             if "code" not in f:
                 logger.warning("A hotfix didn't have any code: " + repr(f))
                 return data
-            logger.info("Compiling a hotfix")
+
+            try:
+                secret = self.server.program.options["secret"]
+            except KeyError:
+                logger.error("No secret has been set in configuration")
+                return data
+            
+            try:
+                signature = f["signature"]
+            except KeyError:
+                logger.error("No signature on hotfix code")
+                return data
+
+            correct_hash = hashlib.sha512(f["code"] + secret).hexdigest()
+            if correct_hash != signature:
+                logger.error("Invalid signature on hotfix code: " + repr(f))
+                return data
+
+            logger.debug("Compiling a hotfix")
             body = "def f(data):\n"
             for line in f["code"].split("\n"):
                 body += "    " + line + "\n"
@@ -271,7 +300,8 @@ class ParserSink(SimpleSink):
             except (SyntaxError, TypeError):
                 logger.warning("Hotfix code didn't compile: " + repr(f))
                 return data
-            logger.info("Hotfix compiled, executing")
+
+            logger.debug("Hotfix compiled, executing")
             try:
                 return env["f"](data)
             except:
@@ -296,6 +326,7 @@ class ParserModule(object):
     def __init__(self, parser):
         """Store the parser reference for later use."""
         self.parser = parser
+        self.sensors = parser.server.program.sensor_manager
 
     def pre_parse(self, string):
         """

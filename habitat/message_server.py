@@ -345,7 +345,7 @@ class Sink(object):
         Called by the server in order to pass a message to the **Sink**.
 
         This method is typically implemented by :py:class:`SimpleSink`
-        or :py:meth:`ThreadedSink`. Filtering based on **Sink.types** is
+        or :py:class:`ThreadedSink`. Filtering based on **Sink.types** is
         done by this method.
         """
 
@@ -795,12 +795,12 @@ class Listener(object):
     only *callsign* is considered.
     """
 
-    allowed_callsign_characters = string.letters + string.digits + "/_"
+    allowed_callsign_characters = string.letters + string.digits + "/_-"
 
     def __init__(self, callsign, ip):
         """
-        *callsign*: string, must be composed of alphanumeric and /_ only
-        (a-zA-Z0-9/_)
+        *callsign*: string, must be composed of alphanumeric and /_-
+        characters only (a-zA-Z0-9/_-)
 
         *ip*: string, which will be validated and converted to an
         **IPAddress** object (the ``ipaddr`` module)
@@ -810,11 +810,12 @@ class Listener(object):
             raise TypeError("callsign must derive from basestring")
 
         if len(callsign) == 0:
-            raise ValueError("callsign must have atleast one letter")
+            raise ValueError("callsign cannot be empty")
 
         for letter in callsign:
             if letter not in self.allowed_callsign_characters:
-                raise ValueError("callsign must be alphanumeric")
+                raise ValueError("callsign may only include " + 
+                    self.allowed_callsign_characters)
 
         self.ip = ipaddr.IPAddress(ip)
         self.callsign = callsign.upper()
