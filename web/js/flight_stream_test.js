@@ -17,7 +17,7 @@ $(document).ready(function() {
     $(document).ajaxComplete(function (e, xhr, settings) {
         requests.splice(requests.indexOf(xhr), 1);
     });
-})
+});
 
 function abort_all_requests() {
     requests.forEach(function (elem) {
@@ -123,7 +123,8 @@ function got_initial_data(data, last_seq) {
 
 function got_changes(data)
 {
-    var deleted = [];
+    var inserted_ids = [];
+    var deleted_ids = [];
     var modified = {};
     var modified_ids = [];
 
@@ -135,7 +136,7 @@ function got_changes(data)
         {
             if (flight_data_ids.indexOf(id) !== -1)
             {
-                deleted.push(id);
+                deleted_ids.push(id);
                 flight_data_ids.splice(flight_data_ids.indexOf(id), 1);
             }
         }
@@ -152,6 +153,7 @@ function got_changes(data)
             {
                 flight_data.push(fake_view_item);
                 flight_data_ids.push(id);
+                inserted_ids.push(id);
             }
         }
     });
@@ -164,11 +166,12 @@ function got_changes(data)
     update_page();
 
     flight_data = flight_data.filter(function (elem) {
-        return deleted.indexOf(elem.id) === -1;
+        return deleted_ids.indexOf(elem.id) === -1;
     });
 
+    inserted_ids.forEach(hilight_item);
     modified_ids.forEach(hilight_item);
-    deleted.forEach(fadeout_item);
+    deleted_ids.forEach(fadeout_item);
 }
 
 function sort_flight_data()
