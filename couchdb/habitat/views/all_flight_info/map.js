@@ -21,32 +21,18 @@ function(doc, req) {
     // Select all listener_telem, listener_info and payload_telemetry documents
     // that are involved or associated in any way with a certain flight.
 
-    if (doc.type == "payload_telemetry" && doc.data._flight &&
-        doc.data._flight == req.query.flight)
+    if (doc.type == "payload_telemetry" && doc.data._flight)
     {
-        return true;
+        emit(doc.data._flight, doc);
     }
+    /* TODO: https://www.pivotaltracker.com/story/show/12110979 */
     else if (doc.type == "listener_telem" || doc.type == "listener_info" &&
              doc.relevant_flights)
     {
-        /* TODO: https://www.pivotaltracker.com/story/show/12110979 */
-
         var flight;
         for (flight in doc.relevant_flights)
         {
-            if (doc.relevant_flights[flight] == req.query.flight)
-            {
-                return true;
-            }
+            emit(flight, doc);
         }
     }
-    else if (doc._deleted)
-    {
-        /* TODO: Is this necessary? I think it is because the filter will be passed
-         * the new doc, not the old one. Changes-listeners must expect deletions for
-         * docs they don't know about ... */
-        return true;
-    }
-
-    return false;
 }

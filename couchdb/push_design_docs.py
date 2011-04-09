@@ -17,13 +17,21 @@
 
 import os
 import json
+import sys
 from couchdbkit import Server
 from couchdbkit.designer import push
 from couchdbkit import exceptions
 
 # Find out the URI and DB to connect to
-uri = raw_input("CouchDB URI [http://localhost:5984]: ")
-db = raw_input("CouchDB Database [habitat]: ")
+if len(sys.argv) == 3:
+    uri = sys.argv[1]
+    db = sys.argv[2]
+elif len(sys.argv) == 1:
+    uri = raw_input("CouchDB URI [http://localhost:5984]: ")
+    db = raw_input("CouchDB Database [habitat]: ")
+else:
+    print "Usage:", sys.argv[0], "CouchDB-URI CouchDB-Database"
+    sys.exit(1)
 
 if uri == "":
     uri = "http://localhost:5984"

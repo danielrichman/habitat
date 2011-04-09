@@ -1,0 +1,8 @@
+ - Add tests
+ - Be aware of the added timeout in jquery.couch.js - ajax on line 277
+ - Investigate efficiency of filter function (change one document: couchjs re runs filter
+   for all documents? Shouldn't matter providing last_seq means that not very many changes
+   are considered. Investigate if it gets run multiple times if there are 3 people
+   using the continuous changes interface rather than just once per doc.)
+ - Investigate what happens to deleted docs: filter cannot work on them since it
+   cannot see the flight.
