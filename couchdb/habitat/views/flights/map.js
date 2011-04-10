@@ -20,6 +20,6 @@ function(doc) {
     // Emit a list of flight docs, sorted by their launch time.
 
     if(doc.type == "flight" || doc.type == "sandbox") {
-        emit(doc.launch.time, doc.name);
+        emit(doc.launch.time, doc);
     }
 }

@@ -5,6 +5,9 @@
    using the continuous changes interface rather than just once per doc.)
  - If the flight id changes, updates will not be noticed.
 
+ - TBH: remove the filter on changes.
+ - There is no timeout on longpolling if a heartbeat is set. This could be bad (?)
+
 Old
  - Investigate what happens to deleted docs: filter cannot work on them since it
    cannot see the flight --- fixed: filter sends all deleted notifications
