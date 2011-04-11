@@ -33,12 +33,12 @@ def crc16_ccitt(data):
     return hex(crc16(data))[2:].upper().zfill(4)
 
 class Telemetry:
-    def __init__(self, flight, dfmt=default_data_fmt, fmt=default_fmt,
+    def __init__(self, output, dfmt=default_data_fmt, fmt=default_fmt,
                  realtime=None, callsign="HBTTST1"):
         if realtime == None:
             realtime = time.time()
 
-        self.flight = flight
+        self.output = output
         self.dfmt = dfmt
         self.fmt = fmt
         self.realtime = realtime
@@ -46,30 +46,38 @@ class Telemetry:
 
         self.count = 0
 
-    def __iter__(self):
-        assert self.count == 0
-        for (timediff, location) in self.flight:
-            rtm = self.realtime + timediff
-            tstr = time.strftime("%H:%M:%S", time.gmtime(rtm))
+    def push(self, timediff, location):
+        rtm = self.realtime + timediff
+        tstr = time.strftime("%H:%M:%S", time.gmtime(rtm))
 
-            data = {
-                "callsign": self.callsign,
-                "count": self.count,
-                "time": tstr,
-                "lat": location[0],
-                "lon": location[1],
-                "alt": location[2]
-            }
+        data = {
+            "callsign": self.callsign,
+            "count": self.count,
+            "time": tstr,
+            "lat": location[0],
+            "lon": location[1],
+            "alt": location[2]
+        }
 
-            data = self.dfmt.format(**data)
-            csum = crc16_ccitt(data)
-            string = self.fmt.format(data=data, csum=csum)
+        data = self.dfmt.format(**data)
+        csum = crc16_ccitt(data)
+        string = self.fmt.format(data=data, csum=csum)
 
-            yield string
- 
-            self.count += 1
+        self.output.push(string, location, rtm)
+
+        self.count += 1
 
 if __name__ == "__main__":
     from flight import Flight
-    for i in Telemetry(Flight()):
-        print i
+
+    class SimpleOutput:
+        def push(self, s, loc, rtm):
+            print s
+
+    t = Telemetry(SimpleOutput())
+    f = Flight(t)
+
+    ftime = 0
+    while not f.finished:
+        f.update(ftime)
+        ftime += 1

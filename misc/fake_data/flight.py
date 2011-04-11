@@ -24,16 +24,20 @@ import math
 __all__ = ["Flight"]
 
 class Flight:
-    def __init__(self, duration=60*60*2, timestep=15, rph=1,
-                 maxalt=30000, loc=(0.0,52.0,0)):
+    def __init__(self, output, duration=60*60*2, messageper=15, rph=1,
+                 maxalt=30000, loc=(0.0,52.0,0), adj=(1.0,1.0)):
         self.duration = duration
-        self.altdiff = maxalt - loc[2]
-        self.time = 0
-        self.timestep = timestep
+        self.messageper = messageper
         self.launchloc = loc
         self.location = loc
         self.rph = rph
+        self.adj = adj
+        self.output = output
 
+        self.altdiff = maxalt - loc[2]
+
+        self.utime = 0
+        self.finished = False
         self.burst = int(self.duration * 0.80)
 
     def _pointdiff(self, time, x_axis):
@@ -41,10 +45,12 @@ class Flight:
 
         if x_axis:
             func = math.sin
+            adj = self.adj[0]
         else:
             func = math.cos
+            adj = self.adj[1]
 
-        return (a * func(a))
+        return (adj * a * func(a))
 
     def _alt(self, time):
         if time > self.burst:
@@ -55,18 +61,24 @@ class Flight:
             duration = self.burst
             return int(float(self.altdiff * time) / duration)
 
-    def update(self):
-        self.time += self.timestep
-        if self.time > self.duration:
-            return False
+    def update(self, time):
+        while True:
+            if self.utime > self.duration:
+                self.finished = True
+                return
 
-        self.location = (
-            self.launchloc[0] + self._pointdiff(self.time, True),
-            self.launchloc[1] + self._pointdiff(self.time, False),
-            self.launchloc[2] + self._alt(self.time)
-        )
+            if self.utime > time:
+                return
 
-        return True
+            self.location = (
+                self.launchloc[0] + self._pointdiff(self.utime, True),
+                self.launchloc[1] + self._pointdiff(self.utime, False),
+                self.launchloc[2] + self._alt(self.utime)
+            )
+
+            self.output.push(self.utime, self.location)
+
+            self.utime += self.messageper
 
     def __iter__(self):
         assert self.time == 0
@@ -75,5 +87,12 @@ class Flight:
             yield (self.time, self.location)
 
 if __name__ == "__main__":
-    for (time, location) in Flight():
-        print time, location
+    class SimpleOutput:
+        def push(self, time, loc):
+            print time, loc
+
+    f = Flight(SimpleOutput())
+    time = 0
+    while not f.finished:
+        f.update(time)
+        time += 1
