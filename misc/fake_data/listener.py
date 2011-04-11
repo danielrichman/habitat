@@ -19,43 +19,68 @@
 Listener that will upload strings.
 """
 
-__all__ = ["Listener"]
+import time
+
+__all__ = ["Listener", "ChaseCar"]
 
 class Listener:
     def __init__(self, uploader, callsign="TSTLSTNR1", 
-                 infoper=300, telemper=300, location=(52.0, 0.0)):
+                 infoper=300, telemper=300, location=(52.0, 0.0),
+                 info={"name": "Test habitat listener 1",
+                       "location": "Launch site",
+                       "radio": "Python virtual radio",
+                       "antenna": "Python virtual antenna"}):
         self.uploader = uploader
+        self.callsign = callsign
         self.infoper = infoper
         self.telemper = telemper
         self.location = location
+        self.info = info
 
         self.uinfotime = 0
         self.utelemtime = 0
 
     def push(self, string, realtime):
-        uploader.push_received_telem(self.callsign, realtime, string)
+        self.uploader.push_received_telem(self.callsign, realtime, string)
 
-    def update(self, time):
-        while self.uinfotime < time:
-            # TODO: push info
+    def update(self, realtime):
+        while self.uinfotime < realtime:
+            self.uploader.push_listener_info(self.callsign, realtime,
+                                             self.info)
             self.uinfotime += self.infoper
 
-        while self.utelemtime < time:
-            # TODO: push telem
+        while self.utelemtime < realtime:
+            ttpl = time.gmtime(realtime)
+            self.uploader.push_listener_telem(self.callsign, realtime, {
+                "latitude": self.location[0],
+                "longitude": self.location[1],
+                "altitude": 0,
+                "time": {
+                    "hour": ttpl.tm_hour,
+                    "minute": ttpl.tm_min,
+                    "second": ttpl.tm_sec
+                }
+            })
             self.utelemtime += self.telemper
 
 class ChaseCar(Listener):
     def __init__(self, uploader, callsign="TSTCHSCR1", infoper=300,
-                 telemper=60, startloc=(72.0, 15.0), locd=(-10.0, -10.0),
-                 locdp=60*60):
+                 telemper=60, startloc=(72.0, 15.0),
+                 info={"name": "Test habitat chasecar",
+                       "radio": "Car radio",
+                       "antenna": "60m dipole"},
+                 locd=(-10.0, -10.0), locdp=60*60):
         self.startloc = startloc
         self.locd = locd
         self.locdp = locdp
 
-        Listener.__init__(self, uploader, infoper, telemper, startloc)
+        Listener.__init__(self, uploader, callsign, infoper, telemper,
+                          startloc, info)
 
-    def update(self, time):
-        self.location = self.startloc
-        self.location[0] += float(time * self.locd[0]) / self.locdp
-        self.location[1] += float(time * self.locd[1]) / self.locdp
-        Listener.update(self, time)
+    def update(self, realtime):
+        self.location = (
+            self.startloc[0] + (float(realtime * self.locd[0]) / self.locdp),
+            self.startloc[1] + (float(realtime * self.locd[1]) / self.locdp)
+        )
+
+        Listener.update(self, realtime)

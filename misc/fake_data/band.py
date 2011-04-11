@@ -48,36 +48,9 @@ class Band:
             if ldiff > 100:
                 prob = 0.2
 
-            print prob,
-
             while random.random() > prob:
                 blip = random.randrange(0, len(string))
                 r = chr(random.randrange(0, 0x100))
                 string = string[:blip] + r + string[(blip + 1):]
 
             listener.push(string, realtime)
-
-if __name__ == "__main__":
-    from flight import Flight
-    from telem import Telemetry
-
-    class SimpleListener:
-        def __init__(self, name, loc):
-            self.name = name
-            self.location = loc
-        def push(self, s):
-            print self.name, s
-
-        location = (52.0, 0.0)
-
-    b = Band()
-    b.add(SimpleListener("launchsite", (52.0, 0.0)))
-    b.add(SimpleListener("side      ", (62.0, 10.0)))
-    b.add(SimpleListener("milesaway ", (102.0, 100.0)))
-    t = Telemetry(b)
-    f = Flight(t)
-
-    ftime = 0
-    while not f.finished:
-        f.update(ftime)
-        ftime += 1

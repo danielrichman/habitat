@@ -85,14 +85,3 @@ class Flight:
         yield (self.time, self.location)
         while self.update():
             yield (self.time, self.location)
-
-if __name__ == "__main__":
-    class SimpleOutput:
-        def push(self, time, loc):
-            print time, loc
-
-    f = Flight(SimpleOutput())
-    time = 0
-    while not f.finished:
-        f.update(time)
-        time += 1

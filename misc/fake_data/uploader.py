@@ -24,25 +24,44 @@ import httplib
 import json
 import base64
 
-__all__ = ["Listener"]
+__all__ = ["Uploader"]
 
 class Uploader:
-    def __init__(self, server="habitat.habhub.org:80", path="testing"):
+    def __init__(self, server="habitat.habhub.org:80", path="/testing"):
         self.path = path
-        self.conn = httplib.HTTPConnection(server)
+        self.server = server
+        self.conn = None
 
     def _upload(self, callsign, mtype, realtime, data):
         payload = {
             "callsign": callsign,
             "type": mtype,
             "data": data,
-            "time_created": realtime,
-            "time_uploaded": time.time()
+            "time_created": int(realtime),
+            "time_uploaded": int(time.time())
         }
 
-        payloadj = json.dumps(payload)
-        self.conn.request("POST", self.path + "/message", payloadj)
+        print realtime, "Posting", mtype, "from", callsign
+        self._post(payload)
 
-    def push_received_telem(self, callsign, realtime, string)
+    def _post(self, payload):
+        payload = json.dumps(payload)
+
+        if not self.conn:
+            self.conn = httplib.HTTPConnection(self.server)
+
+        self.conn.request("POST", self.path + "/message", payload)
+        response = self.conn.getresponse()
+        assert response.status == 200
+        data = response.read()
+        assert data == "OK"
+
+    def push_received_telem(self, callsign, realtime, string):
         self._upload(callsign, "RECEIVED_TELEM", realtime,
                      {"string": base64.b64encode(string)})
+
+    def push_listener_info(self, callsign, realtime, data):
+        self._upload(callsign, "LISTENER_INFO", realtime, data)
+
+    def push_listener_telem(self, callsign, realtime, data):
+        self._upload(callsign, "LISTENER_TELEM", realtime, data)

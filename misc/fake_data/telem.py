@@ -66,18 +66,3 @@ class Telemetry:
         self.output.push(string, location, rtm)
 
         self.count += 1
-
-if __name__ == "__main__":
-    from flight import Flight
-
-    class SimpleOutput:
-        def push(self, s, loc, rtm):
-            print s
-
-    t = Telemetry(SimpleOutput())
-    f = Flight(t)
-
-    ftime = 0
-    while not f.finished:
-        f.update(ftime)
-        ftime += 1
