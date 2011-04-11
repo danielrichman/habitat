@@ -5,6 +5,8 @@
 // TODO: have flightlist_output & watch for flight doc changes (?)
 // TODO: Permanant changes listening ?
 // TODO: Include flight doc itself in all_flight_info or flights.
+// TODO: multiple payloads per flight (!)
+// TODO: go super leet event style.
 
 function FlightStream(db_name, output) {
     var db = $.couch.db(db_name);
