@@ -3,10 +3,34 @@ function DemoOutput(n) {
     var elems = [];
 
     function prepare(elem) {
-        var d = $(document.createElement('div'));
-        var t = elem.data._sentence || elem.data._raw;
-        d.append(t);
-        return d;
+
+/*
+        var columns = [];
+
+        for (var x in elem.data) {
+            if (x[0] !== "_") {
+                columns.push(x);
+            }
+        }
+
+        columns.sort();
+*/
+
+        // Hack. For Science. [TODO]
+        var columns = ["count", "latitude", "longitude", "altitude"];
+
+        var r = $(document.createElement('tr'));
+        var d = $(document.createElement('td'));
+        d.append(elem.data._sentence || elem.data._raw);
+        r.append(d);
+
+        columns.forEach(function (k) {
+            var c = $(document.createElement('td'));
+            c.append(elem.data[k]);
+            r.append(c);
+        });
+
+        return r;
     }
 
     function at(i) {

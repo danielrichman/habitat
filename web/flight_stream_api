@@ -1,0 +1,25 @@
+Notes/proposed:
+
+HabitatDB(db_name)
+  .begin()
+  .flights() (returns array of 'Flight's with 2 methods (below) added)
+  .flights().onChange(fn)
+  .flights().streamTo(target)
+
+Flight
+  Object (i.e., {}) from couch (so, .start, .end, .payloads, etc.)
+  .onDataChange(fn)
+  .streamDataTo(target)
+  .begin()
+  .reset() -- also clears onDataChange and startStreamTo
+
+how to start/stop?
+
+StreamTarget()
+  GMaps-Array-like, with addition of pushAll
+  .init(array) (clear, then push all in array)
+  .push(elem)
+  .insert(id, elem)
+  .remove(id)
+  .set(id, elem)
+  .clear()
