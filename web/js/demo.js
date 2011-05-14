@@ -19,14 +19,16 @@ function DemoOutput(n) {
         // Hack. For Science. [TODO]
         var columns = ["count", "latitude", "longitude", "altitude"];
 
-        var r = $(document.createElement('tr'));
-        var d = $(document.createElement('td'));
+        var r = $(document.createElement('div'));
+        var d = $(document.createElement('div'));
         d.append(elem.data._sentence || elem.data._raw);
+        d.css("width", "600px");
         r.append(d);
 
         columns.forEach(function (k) {
-            var c = $(document.createElement('td'));
+            var c = $(document.createElement('div'));
             c.append(elem.data[k]);
+            c.css("width", "100px");
             r.append(c);
         });
 
