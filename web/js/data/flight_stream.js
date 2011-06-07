@@ -1,4 +1,23 @@
 /*
+ * Copyright 2011 (C) Daniel Richman
+ *
+ * This file is part of habitat.
+ *
+ * habitat is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * habitat is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with habitat.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
  * Change pushing:
  *   - streamDataTo: synchronise or send data to another array
  *     e.g., keep a gmaps points array up to date by pushing new points into it
@@ -22,6 +41,7 @@
  *             to watch for changes.
  *   .telem.onDataChange(fn)
  *   .telem.streamDataTo(target)
+ *   .getListenerDoc(id) - get listener_info or listener_telem doc
  *   .reset() - same as in HabitatDB
  * 
  * StreamTarget()
@@ -32,17 +52,15 @@
  *   .remove(i)
  *   .set(i, elem)
  *   .clear()
+ *
+ * TODO: Tidy up and be consistent with CamelCase [or abandon it entirely].
+ * TODO: Actually abort ajax requests (views, change watch) when we reset().
+ * TODO: listener_telem needs to be a SortedArraySync [derp].
+ * NB: Modifying or deleting listener docs could make strange things happen.
  */
-
-States = {
-    UNINIT: 0,
-    SETUP: 1,
-    READY: 2
-}
 
 /*
  * function types:
- *  - id_map: take an object, return its unique id
  *  - map: function(elem, oldelem): modify elem before storing.
  *          If elem is being updated, oldelem is supplied, else null
  *  - filter: funtion(elem): return true if elem is relevant/should be
@@ -59,25 +77,76 @@ States = {
  *  - update_sort
  */
 
-function couch_doc_id_map(obj) {
-    return obj._id;
+States = {
+    UNINIT: 0,
+    RESET: 1,
+    SETUP: 2,
+    READY: 3
 }
 
-function couch_view_doc_map(obj) {
-    return obj.doc;
-}
+function UnsortedDocStore(settings) {
+    var state = States.UNINIT;
+    var data;
 
-function couch_view_id_map(obj) {
-    return obj.id;
+    this.dataInitialise = function (newdata) {
+        if (state !== States.RESET)
+            throw "Already initialised";
+
+        state = States.READY;
+
+        if (settings.init_filter)
+            newdata = newdata.filter(settings.init_filter);
+
+        if (settings.init_map)
+            newdata = newdata.map(settings.init_map);
+
+        newdata.forEach(function (elem) {
+            data[elem.id] = elem.doc;
+        });
+    };
+
+    this.processChanges = function (changes) {
+        if (state !== States.READY)
+            throw "Not ready";
+
+        changes.forEach(function (change) {
+            var doc = change.doc;
+            var id = change.id;
+            var deleted = false;
+
+            if (change.deleted || (settings.update_filter &&
+                                   !settings.update_filter(doc)))
+                 deleted = true;
+
+            if (!deleted) {
+                var old_doc = data[id];
+                if (!old_doc)
+                    old_doc = null;
+
+                if (settings.update_map)
+                    doc = settings.update_map(doc, old_doc);
+
+                data[id] = doc;
+            } else {
+                /* Javascript doesn't seem to mind doing this */
+                delete data[id];
+            }
+        });
+    };
+
+    this.reset = function () {
+        state = States.RESET;
+        data = {};
+        this.data = data;
+    };
 }
 
 function SortedArraySync(settings) {
     var state = States.UNINIT;
-    var data, data_ids;
-    var changeCallbacks = [], streamTargets = [];
+    var data, data_ids, changeCallbacks, streamTargets;
 
     this.dataInitialise = function (newdata) {
-        if (state !== States.UNINIT)
+        if (state !== States.RESET)
             throw "Already initialised";
 
         state = States.READY;
@@ -88,16 +157,18 @@ function SortedArraySync(settings) {
         else
             data = newdata;
 
-        if (settings.init_map)
-            data = data.map(settings.init_map);
-
         if (settings.init_filter)
             data = data.filter(settings.init_filter);
+
+        if (settings.init_map)
+            data = data.map(settings.init_map);
 
         if (settings.init_sort)
             data.sort(settings.init_sort);
 
-        data_ids = data.map(couch_doc_id_map);
+        data_ids = data.map(function (doc) {
+            return doc._id;
+        });
 
         changeCallbacks.forEach(function (elem) {
             elem(data);
@@ -144,8 +215,8 @@ function SortedArraySync(settings) {
         var new_data = [];
 
         changes.forEach(function (change) {
-            var doc = couch_view_doc_map(change);
-            var id = couch_view_id_map(change);
+            var doc = change.doc;
+            var id = change.id;
             var deleted = false;
             var old_pos = data_ids.indexOf(id);
 
@@ -155,8 +226,8 @@ function SortedArraySync(settings) {
              * be removed
              */
 
-            if (elem.deleted || (settings.update_filter &&
-                                 !settings.update_filter(doc)))
+            if (change.deleted || (settings.update_filter &&
+                                   !settings.update_filter(doc)))
                  deleted = true;
 
             if (!deleted) {
@@ -192,18 +263,18 @@ function SortedArraySync(settings) {
         var new_data_ids = [];
 
         new_data.forEach(function (elem) {
-            new_data_ids.push(couch_doc_id_map(elem));
+            new_data_ids.push(elem._id);
             data.push(elem);
         });
 
         data.sort(settings.update_sort);
 
-        data.forEach(function (elem, i) {
-            if (new_data_ids.indexOf(couch_doc_id_map(elem)) !== -1) {
+        data.forEach(function (doc, i) {
+            if (new_data_ids.indexOf(doc._id) !== -1) {
                 streamTargets.forEach(function (elem) {
-                    elem.insert(i, elem);
+                    elem.insert(i, doc);
                 });
-                data_ids_insert(i, elem);
+                data_ids_insert(i, doc._id);
             }
         });
 
@@ -225,38 +296,75 @@ function SortedArraySync(settings) {
         if (state === States.READY)
             cb.init(data);
     };
+
+    this.reset = function () {
+        if (state === States.READY) {
+            changeCallbacks.forEach(function (cb) {
+                cb([]);
+            });
+            streamTargets.forEach(function (cb) {
+                cb.clear();
+            });
+        }
+
+        state = States.RESET;
+        data = null;
+        data_ids = null;
+        changeCallbacks = [];
+        streamTargets = [];
+    };
+
+    this.reset();
 }
 
 function sort_compare(a, b) {
     return ((a > b) ? 1 : ((a < b) ? -1 : 0));
 }
 
-function flight_sort(a, b) {
+/*
+ * From couchdb/habitat/views/flights/map.js. Keep this updated.
+ */
+function flights_view_sort(a, b) {
     return sort_compare(a.launch.time, b.launch.time);
+}
+
+function flights_view_filter(doc) {
+    return doc.type === "flight" || doc.type === "sandbox";
+}
+
+/*
+ * Related to couchdb/habitat/views/all_flight_info
+ */
+function flight_telem_view_sort(a, b) {
+    return sort_compare(a.estimated_time_created, b.estimated_time_created);
+}
+
+function flight_telem_view_filter_typeonly(doc) {
+    return doc.type === "payload_telemetry";
+}
+
+function flight_telem_view_filter(doc, flight_id) {
+    return doc.type === "payload_telemetry" && 
+           doc._flight && doc. _flight= flight_id;
+}
+
+function flight_listener_docs_filter_typeonly(doc) {
+    return doc.type === "listener_telem" || doc.type === "listener_info";
+}
+
+function flight_listener_docs_filter(doc, flight_id) {
+    return (doc.type === "listener_telem" || doc.type === "listener_info") &&
+            doc.relevant_flights && doc.relevant_flights.indexOf(fl) !== -1;
 }
 
 function HabitatDB(db_name) {
     var db = $.couch.db(db_name);
+    var load_id = 0;
     var state = States.UNINIT;
-    var changelistener;
-
-    function flight_add_methods(elem, oldelem) {
-        /* TODO */
-    }
-
-    var flights = SortedArraySync({
-        init_map: function (elem) {
-            return flight_add_methods(couch_view_doc_map(elem), null);
-        },
-        update_sort: flight_sort,
-        update_map: flight_add_methods
-    }
-
-    this.onDataChange = flights.addChangeCallback;
-    this.streamDataTo = flights.addStreamTarget;
+    var changelistener, mgrs, mgr_ids, flights;
 
     this.init = function () {
-        if (state !== States.UNINIT)
+        if (state !== States.RESET)
             throw "Already initialised";
 
         state = States.SETUP;
@@ -270,273 +378,206 @@ function HabitatDB(db_name) {
          * a change we already know about. This ensures no data is missed.
          */
 
+        /* TODO double check that this is the correct scope */
+        load_id++;
+        var my_load_id = load_id;
+
         db.info({ success: function (info) {
-            if (state !== States.SETUP)
+            if (state !== States.SETUP || load_id !== my_load_id)
                 return; /* Aborted */
 
             db.view("habitat/flights", { success: function (data) {
-                if (state !== States.SETUP)
+                if (state !== States.SETUP || load_id !== my_load_id)
                     return;
 
-                this.setup_complete(info.update_seq, data)
+                this.setupComplete(info.update_seq, data)
             }});
         }});
     };
 
-    this.setup_complete = function (seq, data) {
+    this.setupComplete = function (seq, data) {
         state = States.READY
 
-        flights = data;
+        flights.dataInitialise(data);
         
         /* Listen for all changes since seq */
         changelistener = db.changes(seq, { include_docs: true });
-        changelistener.onChange(this.process_changes);
+        changelistener.onChange(this.processChanges);
     };
 
-    this.process_changes = function (data) {
-        /* TODO */
+    this.processChanges = function (data) {
+        mgrs.forEach(function (mgr) {
+            mgr.processChanges(data);
+        });
+        flights.processChanges(data);
     };
 
+    this.addMgr = function (mgr) {
+        mgr_ids.push(mgr.flight_id);
+        mgrs.push(mgr);
+    };
+
+    this.removeMgr = function (mgr) {
+        var pos = mgr_ids.indexOf(mgr.flight_id);
+        mgr_ids.splice(pos, 1);
+        mgrs.splice(pos, 1)
+    };
+
+    function flight_add_methods(elem, oldelem) {
+        var dm;
+
+        /* TODO: verify that the correct 'this' is used below */
+        if (oldelem._datamanager)
+            dm = oldelem._datamanager;
+        else
+            dm = new FlightDataManager(db, this, elem._id);
+
+        elem._datamanager = dm;
+        elem.init = dm.init;
+        elem.telem = dm.telem;
+        elem.reset = dm.reset;
+    }
+
+    this.reset = function () {
+        if (state !== States.UNINIT) {
+            mgrs.forEach(function (mgr) {
+                mgr.reset();
+            });
+
+            flights.reset();
+
+            if (changelistener !== null)
+                changelistener.stop();
+        }
+
+        state = States.RESET;
+        changelistener = null;
+        mgrs = [];
+
+        load_id++;
+
+        flights = new SortedArraySync({
+            init_map: function (elem) {
+                return flight_add_methods(elem.value, null);
+            },
+            update_sort: flights_view_sort,
+            update_filter: flights_view_filter,
+            update_map: flight_add_methods
+        });
+    };
+
+    this.onDataChange = function (cb) {
+        flights.addChangeCallback(cb);
+    }
+
+    this.streamDataTo = function (cb) {
+        flights.addStreamTarget(cb);
+    }
+
+    this.reset();
 }
 
+function FlightDataManager(db, habitat, flight_id) {
+    var state = States.UNINIT;
+    var telem_sync, listener_docs, held_changes;
+    var load_id = 0;
 
+    this.flight_id = flight_id;
 
+    this.init = function () {
+        if (state !== States.RESET)
+            throw "Already initialised";
 
+        state = States.SETUP;
 
+        habitat.addMgr(this);
 
+        load_id++;
+        var my_load_id = load_id;
 
+        db.info({ success: function (info) {
+            if (state !== States.SETUP || load_id !== my_load_id)
+                return;
 
+            db.view("habitat/all_flight_info", { success: function (data) {
+                if (state !== States.SETUP || load_id !== my_load_id)
+                    return;
 
+                this.setupComplete(data);
+            }, key: flight_id });
+        }});
+    };
 
-/* db_name: couch name; "habitat"
- * output: object with push, insertAt, removeAt, setAt, clear methods 
- * (modeled on gmaps' MVCArray style) */
+    this.setupComplete = function (data) {
+        state = States.READY;
 
-// TODO: have flightlist_output & watch for flight doc changes (?)
-// TODO: Permanant changes listening ?
-// TODO: Include flight doc itself in all_flight_info or flights.
-// TODO: multiple payloads per flight (!)
-// TODO: go super leet event style.
+        telem_sync.dataInitialise(data);
 
-function FlightStream(db_name, output) {
-    var db = $.couch.db(db_name);
-    var flight, dataloader, changelistener;
-    var payload_telemetry, payload_telemetry_ids;
-    var listener_info, listener_telem;
+        held_changes.forEach(function (changes) {
+            this.processChanges(changes);
+        });
+    };
 
-    function flights(cb) {
-        db.view("habitat/flights", { success: function (data) {
-            var fldocs = [];
-            data.rows.forEach(function (row) {
-                fldocs.push(row.value);
-            });
-            cb(fldocs);
-        } });
-    }
+    this.processChanges = function (changes) {
+        if (state === States.SETUP) {
+            held_changes.push(changes);
+        } else {
+            telem_sync.processChanges(changes);
+        }
+    };
 
-    function reset() {
-        flight = null;
-        payload_telemetry = null;
-        payload_telemetry_ids = null;
-        listener_info = null;
-        listener_telem = null;
+    this.reset = function () {
+        if (state !== States.UNINIT) {
+            if (state !== States.RESET)
+                habitat.removeMgr(this);
 
-        changelistener = null;
-        dataloader = null;
-    }
+            telem_sync.reset();
+            listener_docs.reset();
+        }
 
-    function abort() {
-        if (dataloader !== null)
-            dataloader.abort();
+        state = States.RESET;
+        held_changes = [];
 
-        /* TODO: Actually abort the ajax request! */
-        if (changelistener !== null)
-            changelistener.stop();
+        load_id++;
 
-        reset();
-    }
-
-    function select_flight(f) {
-        abort();
-        output.clear();
-
-        flight = f;
-
-        dataloader = (function () {
-            var cancelled = false;
-
-            // Race condition avoidance! Get the last seq, download, then
-            // look for changes.
-            db.info({ success: function (info) {
-                db.view("habitat/all_flight_info", { success: function (data) {
-                    if (!cancelled)
-                        got_initial_data(data, info.update_seq);
-                }, key: flight });
-            }});
-
-            function abort() {
-                /* TODO: Actually abort the ajax request! */
-                cancelled = true;
-            }
-
-            return { abort: abort };
-        })();
-    }
-
-    function ptlm_sort_func(a, b) {
-        var av = a.estimated_time_created;
-        var bv = b.estimated_time_created;
-        return ((av > bv) ? 1 : ((av < bv) ? -1 : 0));
-    }
-
-    function got_initial_data(data, last_seq) {
-        payload_telemetry = [];
-        listener_info = {};
-        listener_telem = {};
-
-        data.rows.forEach(function (elem) {
-            var doc = elem.value;
-            var type = doc.type;
-
-            if (type === "listener_info") {
-                listener_info[id] = doc;
-            } else if (type === "listener_telem") {
-                listener_telem[id] = doc;
-            } else if (type === "payload_telemetry") {
-                payload_telemetry.push(doc);
+        telem_sync = new SortedArraySync({
+            init_filter: function (elem) {
+                return flight_telem_view_filter_typeonly(elem.value);
+            },
+            init_map: function (elem) {
+                return elem.value;
+            },
+            init_sort: flight_telem_view_sort,
+            update_sort: flight_telem_view_sort,
+            update_filter: function (doc) {
+                return flight_telem_view_filter(doc, flight_id);
             }
         });
 
-        payload_telemetry.sort(ptlm_sort_func);
-
-        payload_telemetry_ids = [];
-        payload_telemetry.forEach(function (elem) {
-            output.push(elem);
-            payload_telemetry_ids.push(elem._id);
-        });
-
-        // Begin (permanently) listening for changes.
-        changelistener = db.changes(last_seq, { include_docs: true });
-        changelistener.onChange(got_changes);
-    }
-
-    function got_changes(data)
-    {
-        function is_relevant_to_flight(doc, fl) {
-            // See couchdb/habitat/views/all_flight_info.
-            // We have to check ourselves if a certain change is relevant
-            // to the flight since 
-            return ((doc.type === "payload_telemetry" && doc.data._flight &&
-                     doc.data._flight === fl) ||
-                    ((doc.type === "listener_telem" ||
-                      doc.type === "listener_info") &&
-                     doc.relevant_flights &&
-                     doc.relevant_flights.indexOf(fl) !== -1))
-        }
-
-        function modified_ptlm_will_move(old_pos, new_doc) {
-            if (old_pos === 0) {
-                var next = payload_telemetry[old_pos + 1];
-                return (ptlm_sort_func(new_doc, next) !== -1);
-            } else if (old_pos === (payload_telemetry.length - 1)) {
-                var prev = payload_telemetry[old_pos - 1];
-                return (ptlm_sort_func(prev, new_doc) !== -1);
-            } else {
-                var next = payload_telemetry[old_pos + 1];
-                var prev = payload_telemetry[old_pos - 1];
-                return ((ptlm_sort_func(new_doc, next) !== -1) ||
-                        (ptlm_sort_func(prev, new_doc) !== -1))
-            }
-        }
-
-        function ptlm_del(pos) {
-            payload_telemetry.splice(pos, 1);
-            payload_telemetry_ids.splice(pos, 1);
-            output.removeAt(pos);
-        }
-
-        var new_ptlm = [];
-
-        // Unpack changes.
-        data.results.forEach(function (elem) {
-            var id = elem.id;
-
-            // Treat all irrelevant docs like they don't exist.
-            if (!is_relevant_to_flight(elem.doc, flight))
-                elem.deleted = true;
-
-            var ptlm_old_pos = payload_telemetry_ids.indexOf(id);
-
-            if (elem.deleted) {
-                // A deleted doc doesn't have a type. Gotta delete based on id
-
-                if (ptlm_old_pos !== -1) {
-                    // deletion
-                    ptlm_del(ptlm_old_pos);
-                } else {
-                    // Javascript doesn't care if we do this.
-                    // XXX: This is not accounted for. They would only be
-                    // deleted by an administrator.
-                    delete listener_telem[id];
-                    delete listener_info[id];
-                }
-            } else {
-                // modification or insertion
-                var type = elem.doc.type;
-
-                // XXX: listener_info and listener_telem would only be
-                // modified by an administrator. This is not yet accounted
-                // for.
-
-                if (type === "listener_info") {
-                    listener_info[id] = elem.doc;
-                } else if (type === "listener_telem") {
-                    listener_telem[id] = elem.doc;
-                } else if (type === "payload_telemetry") {
-                    if (ptlm_old_pos !== -1) {
-                        // If possible, avoid moving the item in the output
-                        // list because that's probably quite expensive.
-
-                        if (modified_ptlm_will_move(ptlm_old_pos, elem.doc)) {
-                            // delete & re insert.
-                            ptlm_del(ptlm_old_pos);
-                            new_ptlm.push(elem.doc);
-                        } else {
-                            payload_telemetry[ptlm_old_pos] = elem.doc;
-                            output.setAt(ptlm_old_pos, elem.doc);
-                        }
-                    } else {
-                        // insertion.
-                        new_ptlm.push(elem.doc);
-                    }
-                }
+        listener_docs = new UnsortedDocStore({
+            init_filter: function (elem) {
+                return flight_listener_docs_filter_typeonly(elem.value)
+            },
+            init_map: function (elem) {
+                return { id: elem.id, doc: elem.value };
+            },
+            update_filter: function (doc) {
+                return flight_listener_docs_filter(doc, flight_id);
             }
         });
+    };
 
-        function ptlm_ids_insertAt(pos, elem) {
-            payload_telemetry_ids.splice(pos, 0, elem);
-        }
+    this.telem = {};
 
-        var new_ptlm_ids = [];
+    this.telem.onDataChange = function (cb) {
+        telem_sync.addChangeCallback(cb);
+    };
 
-        new_ptlm.forEach(function (elem) {
-            payload_telemetry.push(elem);
-            new_ptlm_ids.push(elem._id);
-        });
+    this.telem.streamDataTo = function (cb) {
+        telem_sync.addStreamTarget(cb);
+    };
 
-        payload_telemetry.sort(ptlm_sort_func);
-
-        for (var i = 0; i < payload_telemetry.length; i++) {
-            var elem = payload_telemetry[i];
-
-            if (new_ptlm_ids.indexOf(elem._id) !== -1) {
-                output.insertAt(i, elem);
-                ptlm_ids_insertAt(i, elem._id);
-            }
-        }
-    }
-
-    reset();
-
-    return { flights: flights, select_flight: select_flight };
+    this.getListenerDoc = function (id) {
+        return listener_docs.data[id];
+    };
 }
