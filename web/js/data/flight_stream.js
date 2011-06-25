@@ -19,15 +19,20 @@
 
 /*
  * Change pushing:
- *   - streamDataTo: synchronise or send data to another array
- *     e.g., keep a gmaps points array up to date by pushing new points into it
- *   - onDataChange: call a function when something's changed,
- *     passing the complete (new) array
- *     e.g., every time something changes delete the contents of a div and
- *     repopulate with the new contents
- *   - If change push targets are setup before init() is called then they
- *     receive data when it is ready. Otherwise, the new target will be
- *     initialised immediately.
+ *  - streamDataTo: synchronise or send data to another array.
+ *    e.g., keep a gmaps points array up to date by pushing new points into it
+ *    See StreamTarget
+ *  - onDataChange: call a function when something's changed,
+ *    passing the complete (new) array
+ *    e.g., every time something changes delete the contents of a div and
+ *    repopulate with the new contents
+ *  - streamSetTo: given an object [think dict] of K-V pairs
+ *    See SetTarget
+ *  - onSetChange: like onDataChange but for K-V pairs. Passes
+ *    an object, e.g., {"ASDF": 123, "DFGH": 456}
+ *  - If change push targets are setup before init() is called then they
+ *    receive data when it is ready. Otherwise, the new target will be
+ *    initialised immediately.
  *
  * HabitatDB(db_name) - Downloads and maintains the array of flights.
  *   .init() - connect, download, begin watching for changes.
@@ -37,13 +42,19 @@
  *
  * Flight
  *   Object (i.e., {}) from couch (so, .start, .end, .payloads, etc.)
- *   .init() - downloads flight data. Uses changes stream from parent HabitatDB
- *             to watch for changes.
- *   .telem.onDataChange(fn)
- *   .telem.streamDataTo(target)
- *   .getListenerDoc(id) - get listener_info or listener_telem doc
- *   .reset() - same as in HabitatDB
+ *   .dm.init() - downloads flight data. Uses changes stream from parent
+ *                HabitatDB to watch for changes.
+ *   .dm.onSetChange(fn) - for K-V object of Tracks. Each track has its own
+ *                         onDataChange and streamDataTo
+ *   .dm.streamSetTo(fn) - uses init() push(name) and remove(name)
+ *                         only; e.g., push("M0ZDR") remove("M0ZDR")
+ *   .dm.getListenerDoc(id) - get listener_info or listener_telem doc
+ *   .dm.reset() - same as in HabitatDB
  * 
+ * Track
+ *   .onDataChange(fn)
+ *   .streamDataTo(fn)
+ *
  * StreamTarget()
  *   GMaps-Array-like, with addition of init
  *   .init(array) (clear, then push all in array)
@@ -53,10 +64,22 @@
  *   .set(i, elem)
  *   .clear()
  *
- * TODO: Tidy up and be consistent with CamelCase [or abandon it entirely].
- * TODO: Actually abort ajax requests (views, change watch) when we reset().
- * TODO: listener_telem needs to be a SortedArraySync [derp].
+ * SetTarget()
+ *   .init(obj)  e.g., {"ASDF": 123, "DFGH": 456}
+ *   .set(key, value)
+ *   .remove(key)
+ *   .clear()
+ *
  * NB: Modifying or deleting listener docs could make strange things happen.
+ * NB: FlightDataManager assumes that callsigns of objects to be tracked will
+ * appear in the flight doc before any payload_telem items are present;
+ * i.e., don't modify it.
+ *
+ * TODO: Tidy up and be consistent with CamelCase [or abandon it entirely].
+ * TODO: Test that this werks.
+ * TODO: unit tests
+ * WISHLIST: Actually abort ajax requests (views, change watch) when we
+ * reset().
  */
 
 /*
@@ -339,12 +362,12 @@ function flight_telem_view_sort(a, b) {
     return sort_compare(a.estimated_time_created, b.estimated_time_created);
 }
 
-function flight_telem_view_filter_typeonly(doc) {
-    return doc.type === "payload_telemetry";
+function flight_telem_view_filter_typeonly(doc, callsign) {
+    return doc.type === "payload_telemetry" && doc.data.payload == callsign;
 }
 
-function flight_telem_view_filter(doc, flight_id) {
-    return doc.type === "payload_telemetry" && 
+function flight_telem_view_filter(doc, callsign, flight_id) {
+    return doc.type === "payload_telemetry" && doc.data.payload == callsign &&
            doc._flight && doc. _flight= flight_id;
 }
 
@@ -357,7 +380,23 @@ function flight_listener_docs_filter(doc, flight_id) {
             doc.relevant_flights && doc.relevant_flights.indexOf(fl) !== -1;
 }
 
+function flight_listener_telem_view_sort(a, b) {
+    return sort_compare(a.time_created, b.time_created);
+}
+
+function flight_listener_telem_view_filter_typeonly(doc, callsign) {
+    return doc.type === "listener_telemetry" && doc.data.callsign == callsign;
+}
+
+function flight_listener_telem_view_filter(doc, callsign, flight_id) {
+    return doc.type === "listener_telemetry" &&
+           doc.data.callsign == callsign &&
+           doc.relevant_flights && doc.relevant_flights.indexOf(fl) !== -1;
+}
+
+
 function HabitatDB(db_name) {
+    var habitat = this;
     var db = $.couch.db(db_name);
     var load_id = 0;
     var state = States.UNINIT;
@@ -378,7 +417,6 @@ function HabitatDB(db_name) {
          * a change we already know about. This ensures no data is missed.
          */
 
-        /* TODO double check that this is the correct scope */
         load_id++;
         var my_load_id = load_id;
 
@@ -390,7 +428,7 @@ function HabitatDB(db_name) {
                 if (state !== States.SETUP || load_id !== my_load_id)
                     return;
 
-                this.setupComplete(info.update_seq, data)
+                /* this */ habitat.setupComplete(info.update_seq, data.rows);
             }});
         }});
     };
@@ -406,10 +444,12 @@ function HabitatDB(db_name) {
     };
 
     this.processChanges = function (data) {
+        var changes = data.results;
+
         mgrs.forEach(function (mgr) {
-            mgr.processChanges(data);
+            mgr.processChanges(changes);
         });
-        flights.processChanges(data);
+        flights.processChanges(changes);
     };
 
     this.addMgr = function (mgr) {
@@ -423,19 +463,31 @@ function HabitatDB(db_name) {
         mgrs.splice(pos, 1)
     };
 
+    function flight_gen_tracklist(elem) {
+        var tl = [];
+        for (var payload in elem.payloads) {
+            tl.push(payload);
+
+            var item = elem.payloads[payload];
+            if (item.chasers)
+                item.chasers.forEach(tl.push);
+        }
+        return tl;
+    }
+
     function flight_add_methods(elem, oldelem) {
         var dm;
+        var tl = flight_gen_tracklist(elem);
 
-        /* TODO: verify that the correct 'this' is used below */
-        if (oldelem._datamanager)
-            dm = oldelem._datamanager;
-        else
-            dm = new FlightDataManager(db, this, elem._id);
+        if (oldelem) {
+            dm = oldelem.dm;
+            dm.setTrackList(tl);
+        } else {
+            dm = new FlightDataManager(db, /* this */ habitat, elem._id, tl);
+        }
 
-        elem._datamanager = dm;
-        elem.init = dm.init;
-        elem.telem = dm.telem;
-        elem.reset = dm.reset;
+        elem.dm = dm;
+        return elem;
     }
 
     this.reset = function () {
@@ -453,6 +505,7 @@ function HabitatDB(db_name) {
         state = States.RESET;
         changelistener = null;
         mgrs = [];
+        mgr_ids = [];
 
         load_id++;
 
@@ -477,12 +530,49 @@ function HabitatDB(db_name) {
     this.reset();
 }
 
-function FlightDataManager(db, habitat, flight_id) {
+function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
+    var datamanager = this;
     var state = States.UNINIT;
-    var telem_sync, listener_docs, held_changes;
-    var load_id = 0;
+    var track_syncs, listener_docs, held_changes;
+    var tracklistChangeCallbacks, tracklistStreamTargets, tracklistInit;
+    var tracklist = {}, load_id = 0;
 
     this.flight_id = flight_id;
+
+    this.setTrackList = function (newtracklist) {
+        var newcalls = [], added = [], removed = [];
+
+        newtracklist.forEach(function (tli) {
+            newcalls.push(tli.callsign);
+
+            if (tracklist[tli.callsign] === undefined)
+                added.push(tli);
+        });
+
+        for (var call in tracklist) {
+            if (newcalls.indexOf(call) === -1)
+                removed.push(call);
+        }
+
+        added.forEach(this.addTrackListItem);
+        removed.forEach(this.destroyTrackListItem);
+
+        added.forEach(function (call) {
+            tracklistStreamTargets.forEach(function (elem) {
+                elem.set(call, tracklist[call]);
+            });
+        });
+
+        removed.forEach(function (call) {
+            tracklistStreamTargets.forEach(function (elem) {
+                elem.remove(call);
+            });
+        });
+
+        tracklistChangeCallbacks.forEach(function (elem) {
+            elem(tracklist);
+        });
+    };
 
     this.init = function () {
         if (state !== States.RESET)
@@ -503,7 +593,7 @@ function FlightDataManager(db, habitat, flight_id) {
                 if (state !== States.SETUP || load_id !== my_load_id)
                     return;
 
-                this.setupComplete(data);
+                /* this */ datamanager.setupComplete(data.rows);
             }, key: flight_id });
         }});
     };
@@ -511,7 +601,9 @@ function FlightDataManager(db, habitat, flight_id) {
     this.setupComplete = function (data) {
         state = States.READY;
 
-        telem_sync.dataInitialise(data);
+        track_syncs.forEach(function (t) {
+            t.dataInitialise(data);
+        });
 
         held_changes.forEach(function (changes) {
             this.processChanges(changes);
@@ -522,8 +614,64 @@ function FlightDataManager(db, habitat, flight_id) {
         if (state === States.SETUP) {
             held_changes.push(changes);
         } else {
-            telem_sync.processChanges(changes);
+            track_syncs.forEach(function (t) {
+                t.processChanges(changes);
+            });
         }
+    };
+
+    this.addTrackListItem = function (trackitem) {
+        var callsign = trackitem.callsign, chaser = trackitem.chaser;
+
+        if (chaser) {
+            track_syncs[callsign] = new SortedArraySync({
+                // XXX: Create it
+                init_filter: function (elem) {
+                    return flight_listener_telem_view_filter_typeonly(
+                               elem.value, callsign);
+                },
+                init_map: function (elem) {
+                    return elem.value;
+                },
+                init_sort: flight_listener_telem_view_sort,
+                update_sort: flight_listener_telem_view_sort,
+                update_filter: function (doc) {
+                    return flight_listener_telem_view_filter(
+                               doc, callsign, flight_id);
+                }
+            });
+        } else {
+            track_syncs[callsign] = new SortedArraySync({
+                init_filter: function (elem) {
+                    return flight_telem_view_filter_typeonly(
+                               elem.value, callsign);
+                },
+                init_map: function (elem) {
+                    return elem.value;
+                },
+                init_sort: flight_telem_view_sort,
+                update_sort: flight_telem_view_sort,
+                update_filter: function (doc) {
+                    return flight_telem_view_filter(doc, callsign, flight_id);
+                }
+           });
+        }
+
+        if (state === States.READY) {
+           track_syncs[callsign].dataInitialise([]);
+        }
+
+        tracklist[callsign] = {
+            info: trackitem,
+            onDataChange: track_syncs[callsign].addChangeCallback,
+            streamDataTo: track_syncs[callsign].addStreamTarget
+        };
+    };
+
+    this.destroyTrackListItem = function (callsign) {
+        track_syncs[callsign].reset();
+        delete tracklist[callsign];
+        delete track_syncs[callsign];
     };
 
     this.reset = function () {
@@ -531,28 +679,37 @@ function FlightDataManager(db, habitat, flight_id) {
             if (state !== States.RESET)
                 habitat.removeMgr(this);
 
-            telem_sync.reset();
+            track_syncs.forEach(function (t) {
+                t.reset();
+            });
             listener_docs.reset();
+            tracklistChangeCallbacks.forEach(function (cb) {
+                cb([]);
+            });
+            tracklistStreamTargets.forEach(function (cb) {
+                cb.clear();
+            });
+        }
+
+        /* Keep tracklist */
+        var tracklist_temp = [];
+        for (var call in tracklist) {
+            tracklist_temp.push(tracklist[call].info);
         }
 
         state = States.RESET;
+        track_syncs = [];
+        tracklist = [];
+        tracklistInit = false;
         held_changes = [];
+        tracklistChangeCallbacks = [];
+        tracklistStreamTargets = [];
 
         load_id++;
 
-        telem_sync = new SortedArraySync({
-            init_filter: function (elem) {
-                return flight_telem_view_filter_typeonly(elem.value);
-            },
-            init_map: function (elem) {
-                return elem.value;
-            },
-            init_sort: flight_telem_view_sort,
-            update_sort: flight_telem_view_sort,
-            update_filter: function (doc) {
-                return flight_telem_view_filter(doc, flight_id);
-            }
-        });
+        /* Rebuild track_syncs... */
+        tracklist_temp.forEach(this.addTrackListItem);
+        /* We just cleared tracklist callbacks so there's noone to tell */
 
         listener_docs = new UnsortedDocStore({
             init_filter: function (elem) {
@@ -567,17 +724,20 @@ function FlightDataManager(db, habitat, flight_id) {
         });
     };
 
-    this.telem = {};
-
-    this.telem.onDataChange = function (cb) {
-        telem_sync.addChangeCallback(cb);
+    this.onSetChange = function (cb) {
+        tracklistChangeCallbacks.push(cb);
+        cb(tracklist);
     };
 
-    this.telem.streamDataTo = function (cb) {
-        telem_sync.addStreamTarget(cb);
+    this.streamSetTo = function (cb) {
+        tracklistStreamTargets.push(cb);
+        cb.init(tracklist);
     };
 
     this.getListenerDoc = function (id) {
         return listener_docs.data[id];
     };
+
+    this.reset();
+    this.setTrackList(initial_tracklist);
 }
