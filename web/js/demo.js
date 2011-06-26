@@ -95,7 +95,7 @@ function flight_map(flight) {
             tracklink.text("Stop Tracking");
     }
 
-    namespan.text("Flight: " + flight.name);
+    namespan.text(flight.name);
     setlinktext();
     elem.append(namespan);
     elem.append(" ");
@@ -173,7 +173,7 @@ function flight_track_toggle(flight) {
 
         var c = $("<div id='flight_" + flight._id + "' class='section' />");
         $("#demo").append(c);
-        c.append($("<h2 />").text(flight.name));
+        c.append($("<h2 />").text("Flight: " + flight.name));
 
         var d = $("<div />");
         c.append(d);
