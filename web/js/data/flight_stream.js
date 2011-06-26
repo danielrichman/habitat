@@ -66,7 +66,7 @@
  *
  * SetTarget()
  *   .init(obj)  e.g., {"ASDF": 123, "DFGH": 456}
- *   .set(key, value)
+ *   .set(key, value) - NB. this will never overwrite a current item.
  *   .remove(key)
  *   .clear()
  *
@@ -220,11 +220,13 @@ function SortedArraySync(settings) {
             data_ids.splice(pos, 0, id);
         }
 
-        function modified_data_will_move(doc, pos) {
+        /* We can't guarantee that if the compare function returns 0
+         * they won't move; it's not in the standard. */
+        function modified_data_may_move(doc, pos) {
             if (pos === 0) {
                 var next = data[pos + 1];
                 return (settings.update_sort(doc, next) !== -1);
-            } else if (old_pos === (data.length - 1)) {
+            } else if (pos === (data.length - 1)) {
                 var prev = data[pos - 1];
                 return (settings.update_sort(prev, doc) !== -1);
             } else {
@@ -265,7 +267,7 @@ function SortedArraySync(settings) {
                         doc = settings.update_map(doc, data[old_pos]);
 
                     /* modification: try to avoid having to move. */
-                    if (modified_data_will_move(doc, old_pos)) {
+                    if (modified_data_may_move(doc, old_pos)) {
                         /* delete, re-insert */
                         data_remove(old_pos);
                         new_data.push(doc);
@@ -466,11 +468,14 @@ function HabitatDB(db_name) {
     function flight_gen_tracklist(elem) {
         var tl = [];
         for (var payload in elem.payloads) {
-            tl.push(payload);
+            tl.push({ callsign: payload, chaser: false });
 
             var item = elem.payloads[payload];
-            if (item.chasers)
-                item.chasers.forEach(tl.push);
+            if (item.chasers) {
+                item.chasers.forEach(function (chaser) {
+                    tl.push({ callsign: chaser, chaser: true });
+                });
+            }
         }
         return tl;
     }
@@ -557,7 +562,8 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
         added.forEach(this.addTrackListItem);
         removed.forEach(this.destroyTrackListItem);
 
-        added.forEach(function (call) {
+        added.forEach(function (track) {
+            var call = track.callsign;
             tracklistStreamTargets.forEach(function (elem) {
                 elem.set(call, tracklist[call]);
             });
@@ -601,9 +607,9 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
     this.setupComplete = function (data) {
         state = States.READY;
 
-        track_syncs.forEach(function (t) {
-            t.dataInitialise(data);
-        });
+        for (var call in track_syncs) {
+            track_syncs[call].dataInitialise(data);
+        }
 
         held_changes.forEach(function (changes) {
             this.processChanges(changes);
@@ -614,18 +620,18 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
         if (state === States.SETUP) {
             held_changes.push(changes);
         } else {
-            track_syncs.forEach(function (t) {
-                t.processChanges(changes);
-            });
+            for (var call in track_syncs) {
+                track_syncs[call].processChanges(changes);
+            }
         }
     };
 
     this.addTrackListItem = function (trackitem) {
         var callsign = trackitem.callsign, chaser = trackitem.chaser;
+        var sync;
 
         if (chaser) {
-            track_syncs[callsign] = new SortedArraySync({
-                // XXX: Create it
+            sync = new SortedArraySync({
                 init_filter: function (elem) {
                     return flight_listener_telem_view_filter_typeonly(
                                elem.value, callsign);
@@ -641,7 +647,7 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
                 }
             });
         } else {
-            track_syncs[callsign] = new SortedArraySync({
+            sync = new SortedArraySync({
                 init_filter: function (elem) {
                     return flight_telem_view_filter_typeonly(
                                elem.value, callsign);
@@ -658,13 +664,21 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
         }
 
         if (state === States.READY) {
-           track_syncs[callsign].dataInitialise([]);
+            /* A track created mid flight. We don't yet support
+             * re-initialising from data. Perhaps we could redownload all
+             * data or something... */
+            sync.dataInitialise([]);
         }
 
+        track_syncs[callsign] = sync;
         tracklist[callsign] = {
             info: trackitem,
-            onDataChange: track_syncs[callsign].addChangeCallback,
-            streamDataTo: track_syncs[callsign].addStreamTarget
+            onDataChange: function (cb) {
+                sync.addChangeCallback(cb);
+            },
+            streamDataTo: function (cb) {
+                sync.addStreamTarget(cb);
+            }
         };
     };
 
@@ -679,9 +693,9 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
             if (state !== States.RESET)
                 habitat.removeMgr(this);
 
-            track_syncs.forEach(function (t) {
-                t.reset();
-            });
+            for (var call in track_syncs) {
+                track_syncs[call].reset();
+            }
             listener_docs.reset();
             tracklistChangeCallbacks.forEach(function (cb) {
                 cb([]);
@@ -698,8 +712,8 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
         }
 
         state = States.RESET;
-        track_syncs = [];
-        tracklist = [];
+        track_syncs = {};
+        tracklist = {};
         tracklistInit = false;
         held_changes = [];
         tracklistChangeCallbacks = [];

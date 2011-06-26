@@ -1,1 +1,55 @@
-div#telems div div { display: inline-block; font-family: monospace; }
+body
+{
+    font-family: sans-serif;
+}
+
+a, a:hover, a:visited
+{
+    text-decoration: none;
+    color: blue;
+}
+
+a:hover
+{
+    text-decoration: underline;
+}
+
+h1
+{
+    text-align: center;
+}
+
+h2
+{
+    margin: 3px 6px;
+}
+
+.section
+{
+    margin: 10px;
+    padding: 10px;
+    border: 2px solid gray;
+}
+
+.track
+{
+    margin: 10px;
+    border-top: 2px solid navy;
+}
+
+.flightname
+{
+    display: inline-block;
+    width: 300px;
+}
+
+.trackname
+{
+    font-weight: bold;
+}
+
+.telem div
+{
+    width: 100px;
+    display: inline-block;
+}
