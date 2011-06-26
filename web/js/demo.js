@@ -35,7 +35,7 @@ function DemoStreamDataTarget(container, map) {
         if (i == contents.length)
             container.append(newelem);
         else
-            contents[i].before(newelem);
+            $(contents[i]).before(newelem);
     }
 
     this.remove = function (i) {
@@ -43,7 +43,7 @@ function DemoStreamDataTarget(container, map) {
     }
 
     this.set = function (i, item) {
-        container.children()[i].replaceWith(map(item));
+        $(container.children()[i]).replaceWith(map(item));
     }
 
     this.clear = function () {
@@ -145,10 +145,8 @@ function telem_map(doc) {
         var s = doc.data[k];
         if (s === undefined)
             s = "n/a";
-        else
-            s = s.toString();
-        if (s.length > 9)
-            s = s.substr(0, 9);
+        else if (Math.round(s) != s)
+            s = s.toFixed(4);
         elem.append($("<div />").text(s));
     });
 

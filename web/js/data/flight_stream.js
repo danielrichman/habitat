@@ -275,7 +275,7 @@ function SortedArraySync(settings) {
                         /* modify in place */
                         data[old_pos] = doc;
                         streamTargets.forEach(function (elem) {
-                            elem.set(pos, doc);
+                            elem.set(old_pos, doc);
                         });
                     }
                 }
@@ -365,12 +365,12 @@ function flight_telem_view_sort(a, b) {
 }
 
 function flight_telem_view_filter_typeonly(doc, callsign) {
-    return doc.type === "payload_telemetry" && doc.data.payload == callsign;
+    return doc.type === "payload_telemetry" && doc.data.payload === callsign;
 }
 
 function flight_telem_view_filter(doc, callsign, flight_id) {
-    return doc.type === "payload_telemetry" && doc.data.payload == callsign &&
-           doc._flight && doc. _flight= flight_id;
+    return doc.type === "payload_telemetry" && doc.data.payload === callsign &&
+           doc.data._flight && doc.data._flight === flight_id;
 }
 
 function flight_listener_docs_filter_typeonly(doc) {
