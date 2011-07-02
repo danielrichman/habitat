@@ -29,14 +29,15 @@ from listener import Listener, ChaseCar
 from uploader import Uploader
 
 def main():
+    starttime = int(time.time() - 7200)
     uploader = Uploader()
-    listener_1 = Listener(uploader)
-    listener_2 = Listener(uploader, callsign="TSTLSTNR2")
-    listener_3 = ChaseCar(uploader)
+    listener_1 = Listener(uploader, realtime=starttime)
+    listener_2 = Listener(uploader, callsign="TSTLSTNR2", realtime=starttime)
+    listener_3 = ChaseCar(uploader, realtime=starttime)
     band = Band()
     for i in [listener_1, listener_2, listener_3]:
         band.add(i)
-    telem = Telemetry(band, realtime=int(time.time() - 7200))
+    telem = Telemetry(band, realtime=starttime)
     flight = Flight(telem)
 
     simtime = 0
@@ -45,7 +46,7 @@ def main():
             i.update(simtime)
 
         simtime += 1
-        time.sleep((1.0/60))
+#        time.sleep((1.0/60))
 
 if __name__ == "__main__":
     main()

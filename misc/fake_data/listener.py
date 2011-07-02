@@ -24,17 +24,21 @@ import time
 __all__ = ["Listener", "ChaseCar"]
 
 class Listener:
-    def __init__(self, uploader, callsign="TSTLSTNR1", 
+    def __init__(self, uploader, callsign="TSTLSTNR1", realtime=None,
                  infoper=300, telemper=300, location=(52.0, 0.0),
                  info={"name": "Test habitat listener 1",
                        "location": "Launch site",
                        "radio": "Python virtual radio",
                        "antenna": "Python virtual antenna"}):
+        if realtime == None:
+            realtime = time.time()
+
         self.uploader = uploader
         self.callsign = callsign
         self.infoper = infoper
         self.telemper = telemper
         self.location = location
+        self.realtime = realtime
         self.info = info
 
         self.uinfotime = 0
@@ -43,15 +47,17 @@ class Listener:
     def push(self, string, realtime):
         self.uploader.push_received_telem(self.callsign, realtime, string)
 
-    def update(self, realtime):
-        while self.uinfotime < realtime:
-            self.uploader.push_listener_info(self.callsign, realtime,
+    def update(self, timediff):
+        rtm = self.realtime + timediff
+
+        while self.uinfotime < timediff:
+            self.uploader.push_listener_info(self.callsign, rtm,
                                              self.info)
             self.uinfotime += self.infoper
 
-        while self.utelemtime < realtime:
-            ttpl = time.gmtime(realtime)
-            self.uploader.push_listener_telem(self.callsign, realtime, {
+        while self.utelemtime < timediff:
+            ttpl = time.gmtime(rtm)
+            self.uploader.push_listener_telem(self.callsign, rtm, {
                 "latitude": self.location[0],
                 "longitude": self.location[1],
                 "altitude": 0,
@@ -64,8 +70,8 @@ class Listener:
             self.utelemtime += self.telemper
 
 class ChaseCar(Listener):
-    def __init__(self, uploader, callsign="TSTCHSCR1", infoper=300,
-                 telemper=60, startloc=(72.0, 15.0),
+    def __init__(self, uploader, callsign="TSTCHSCR1", realtime=None,
+                 infoper=300, telemper=60, startloc=(72.0, 15.0),
                  info={"name": "Test habitat chasecar",
                        "radio": "Car radio",
                        "antenna": "60m dipole"},
@@ -74,13 +80,13 @@ class ChaseCar(Listener):
         self.locd = locd
         self.locdp = locdp
 
-        Listener.__init__(self, uploader, callsign, infoper, telemper,
-                          startloc, info)
+        Listener.__init__(self, uploader, callsign, realtime, infoper,
+                           telemper, startloc, info)
 
-    def update(self, realtime):
+    def update(self, timediff):
         self.location = (
-            self.startloc[0] + (float(realtime * self.locd[0]) / self.locdp),
-            self.startloc[1] + (float(realtime * self.locd[1]) / self.locdp)
+            self.startloc[0] + (float(timediff * self.locd[0]) / self.locdp),
+            self.startloc[1] + (float(timediff * self.locd[1]) / self.locdp)
         )
 
-        Listener.update(self, realtime)
+        Listener.update(self, timediff)
