@@ -181,6 +181,12 @@ class ArchiveSink(SimpleSink):
         receiver_info["latest_info"] = self._get_listener_info_docid(
             callsign, message.time_created)
 
+        if "_flight" in doc["data"]:
+            for doc_id in [receiver_info["latest_telem"],
+                           receiver_info["latest_info"]]:
+                if doc_id:
+                    self._add_relevant_flight(doc_id, doc["data"]["_flight"])
+
         doc["receivers"][callsign] = receiver_info
 
     def _update_estimated_time_created(self, doc):
@@ -232,6 +238,33 @@ class ArchiveSink(SimpleSink):
         """
         return self._get_listener_docid(callsign, "habitat/listener_telem",
             time_created)
+
+    def _add_relevant_flight(self, doc_id, flight_id, attempts=0):
+     
+        doc = self.server.db[doc_id]
+
+        if "relevant_flights" not in doc:
+            doc["relevant_flights"] = [flight_id]
+        else:
+            if flight_id in doc["relevant_flights"]:
+                return
+
+            doc["relevant_flights"].append(flight_id)
+
+        logger.debug("Adding flight {0} to ldoc {1}".format(flight_id, doc_id))
+
+        try:
+            self.server.db[doc_id] = doc
+        except ResourceConflict:
+            # As in _handle_telem
+            logger.warning("Resource conflict adding a relevant flight, retrying")
+            attempts += 1
+            if attempts >= 30:
+                logger.error("Could not add a relevant flight after 30 attempts")
+                raise RuntimeError('Unable to add a relevant flight after many conflicts')
+            else:
+                logger.warning("Recursing into self._add_relevant_flight")
+                self._add_relevant_flight(doc_id, flight_id, attempts)
 
     def _estimate_time_created(self, times):
         """

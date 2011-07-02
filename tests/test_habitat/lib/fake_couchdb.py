@@ -21,6 +21,7 @@ fetching documents.
 """
 
 import uuid
+from copy import deepcopy
 
 class ViewResults(object):
     """
@@ -35,20 +36,27 @@ class ViewResults(object):
 
 class Database(object):
     """A fake Database which implements __getitem__, save_doc and view."""
-    def __init__(self, docs=None):
+    def __init__(self, docs=None, protect_docs=False):
         if docs:
             self.docs = docs
         else:
             self.docs = {}
+        self.protect_docs = protect_docs
         self.saved_docs = []
         self.view_string = None
         self.view_params = None
         self.view_results = {}
         self.default_view_results = ViewResults()
     def __getitem__(self, key):
-        return self.docs[key]
+        if self.protect_docs:
+            return deepcopy(self.docs[key])
+        else:
+            return self.docs[key]
     def __setitem__(self, key, item):
-        self.docs[key] = item
+        if self.protect_docs:
+            self.docs[key] = deepcopy(item)
+        else:
+            self.docs[key] = item
     def __contains__(self, key):
         return key in self.docs
     def save_doc(self, doc):
