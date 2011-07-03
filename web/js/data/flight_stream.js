@@ -162,6 +162,8 @@ function UnsortedDocStore(settings) {
         data = {};
         this.data = data;
     };
+
+    this.reset();
 }
 
 function SortedArraySync(settings) {
@@ -379,7 +381,8 @@ function flight_listener_docs_filter_typeonly(doc) {
 
 function flight_listener_docs_filter(doc, flight_id) {
     return (doc.type === "listener_telem" || doc.type === "listener_info") &&
-            doc.relevant_flights && doc.relevant_flights.indexOf(fl) !== -1;
+            doc.relevant_flights &&
+            doc.relevant_flights.indexOf(flight_id) !== -1;
 }
 
 function flight_listener_telem_view_sort(a, b) {
@@ -393,7 +396,8 @@ function flight_listener_telem_view_filter_typeonly(doc, callsign) {
 function flight_listener_telem_view_filter(doc, callsign, flight_id) {
     return doc.type === "listener_telemetry" &&
            doc.data.callsign == callsign &&
-           doc.relevant_flights && doc.relevant_flights.indexOf(fl) !== -1;
+           doc.relevant_flights &&
+           doc.relevant_flights.indexOf(flight_id) !== -1;
 }
 
 
@@ -607,6 +611,8 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
     this.setupComplete = function (data) {
         state = States.READY;
 
+        listener_docs.dataInitialise(data);
+
         for (var call in track_syncs) {
             track_syncs[call].dataInitialise(data);
         }
@@ -620,6 +626,8 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
         if (state === States.SETUP) {
             held_changes.push(changes);
         } else {
+            listener_docs.processChanges(changes);
+
             for (var call in track_syncs) {
                 track_syncs[call].processChanges(changes);
             }

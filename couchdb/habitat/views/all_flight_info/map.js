@@ -28,10 +28,9 @@ function(doc, req) {
     else if (doc.type == "listener_telem" || doc.type == "listener_info" &&
              doc.relevant_flights)
     {
-        var flight;
-        for (flight in doc.relevant_flights)
+        for (var i = 0; i < doc.relevant_flights; i++)
         {
-            emit(flight, doc);
+            emit(doc.relevant_flights[i], doc);
         }
     }
 }

@@ -66,6 +66,29 @@ div.fullscreen
 {
     width: 100px;
     display: inline-block;
+    vertical-align: middle;
+}
+
+.telem div.receivers
+{
+    width: 400px;
+}
+
+.telem div.receiver
+{
+    width: auto;
+    font-size: 60%;
+}
+
+.listener_doc_present
+{
+    color: green;
+}
+
+.listener_doc_missing
+{
+    color: red;
+    text-decoration: line-through;
 }
 
 html.gmapsmode div#flightlist

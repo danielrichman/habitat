@@ -187,7 +187,7 @@ function refresh_flightlist(container, data) {
     });
 }
 
-function track_map(callsign, track) {
+function track_map(callsign, track, flight) {
     var elem = $("<div class='track' />");
 
     var label = $("<p class='trackname' />");
@@ -208,28 +208,64 @@ function track_map(callsign, track) {
     elem.append(d);
 
     if (demo_mode == DemoModes.STREAM)
-        track.streamDataTo(new DemoStreamDataTarget(d, telem_map));
+        track.streamDataTo(new DemoStreamDataTarget(d, function (doc) {
+            return telem_map(doc, callsign, track, flight);
+        }));
     else if (demo_mode == DemoModes.REFRESH)
         track.onDataChange(function (data) {
-            refresh_telemlist(d, data);
+            refresh_telemlist(d, data, callsign, track, flight);
         });
 
     flashlater(label);
     return elem;
 }
 
-function refresh_tracklist(container, data) {
+function refresh_tracklist(container, data, flight) {
     container.empty();
     for (var callsign in data) {
-        container.append(track_map(callsign, data[callsign]));
+        container.append(track_map(callsign, data[callsign], flight));
     }
 }
 
-var telem_columns = ["count", "latitude", "longitude", "altitude"];
+function receivers_map(doc, callsign, track, flight) {
+    var elem = $("<div class='receivers' />");
 
-function telem_map(doc) {
+    var receivers = [];
+    for (var callsign in doc.receivers) {
+        receivers.push(callsign);
+    }
+    receivers.sort();
+
+    receivers.forEach(function (callsign) {
+        var receiver = doc.receivers[callsign];
+        var r_elem = $("<div class='receiver' />");
+        r_elem.append($("<span />").text(callsign));
+        r_elem.append(" ");
+
+        [["latest_info", "I"], ["latest_telem", "T"]].forEach(function (n) {
+            if (!receiver[n[0]])
+                return;
+
+            var i = $("<span />").text(n[1]);
+            if (flight.dm.getListenerDoc(receiver[n[0]]))
+                i.addClass("listener_doc_present");
+            else
+                i.addClass("listener_doc_missing");
+            r_elem.append(i);
+        });
+        elem.append(r_elem);
+        elem.append(" ");
+    });
+
+    return elem;
+}
+
+var numeric_telem_columns = ["count", "latitude", "longitude", "altitude"];
+var other_telem_columns = [receivers_map];
+
+function telem_map(doc, callsign, track, flight) {
     var elem = $("<div class='telem' />");
-    telem_columns.forEach(function (k) {
+    numeric_telem_columns.forEach(function (k) {
         var s = doc.data[k];
         if (s === undefined)
             s = "n/a";
@@ -237,15 +273,18 @@ function telem_map(doc) {
             s = s.toFixed(4);
         elem.append($("<div />").text(s));
     });
+    other_telem_columns.forEach(function (fn) {
+        elem.append(fn(doc, callsign, track, flight));
+    });
 
     flashlater(elem);
     return elem;
 }
 
-function refresh_telemlist(container, data) {
+function refresh_telemlist(container, data, callsign, track, flight) {
     container.empty();
     data.forEach(function (item) {
-        container.append(telem_map(item));
+        container.append(telem_map(item, callsign, track, flight));
     });
 }
 
@@ -275,12 +314,17 @@ function flight_track_toggle(flight) {
             var d = $("<div />");
             c.append(d);
 
-            if (demo_mode == DemoModes.STREAM)
-                flight.dm.streamSetTo(new DemoStreamSetTarget(d, track_map));
-            else if (demo_mode == DemoModes.REFRESH)
+            if (demo_mode == DemoModes.STREAM) {
+                function ftm(callsign, track) {
+                    return track_map(callsign, track, flight);
+                }
+                flight.dm.streamSetTo(new DemoStreamSetTarget(d, ftm));
+            }
+            else if (demo_mode == DemoModes.REFRESH) {
                 flight.dm.onSetChange(function (data) {
-                    refresh_tracklist(d, data);
+                    refresh_tracklist(d, data, flight);
                 });
+            }
         }
     }
 }
