@@ -24,6 +24,20 @@ h2
     margin: 3px 6px;
 }
 
+html.gmapsmode, html.gmapsmode body
+{
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+div.fullscreen
+{
+    width: 100%;
+    height: 100%;
+}
+
 .section
 {
     margin: 10px;
@@ -52,4 +66,20 @@ h2
 {
     width: 100px;
     display: inline-block;
+}
+
+html.gmapsmode div#flightlist
+{
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    padding-right: 20px;
+    font-size: 75%;
+    background-color: white;
+    opacity: 0.8;
+}
+
+html.gmapsmode span.flightname
+{
+    width: 150px;
 }

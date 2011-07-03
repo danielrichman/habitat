@@ -105,7 +105,7 @@ States = {
     RESET: 1,
     SETUP: 2,
     READY: 3
-}
+};
 
 function UnsortedDocStore(settings) {
     var state = States.UNINIT;
@@ -612,7 +612,7 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
         }
 
         held_changes.forEach(function (changes) {
-            this.processChanges(changes);
+            /* this */ datamanager.processChanges(changes);
         });
     };
 

@@ -25,7 +25,6 @@ function(doc, req) {
     {
         emit(doc.data._flight, doc);
     }
-    /* TODO: https://www.pivotaltracker.com/story/show/12110979 */
     else if (doc.type == "listener_telem" || doc.type == "listener_info" &&
              doc.relevant_flights)
     {

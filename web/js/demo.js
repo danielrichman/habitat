@@ -17,6 +17,16 @@ function flashlater(elem) {
     }, 100); XXX: perhaps not. */
 }
 
+/* Who doesn't love globals? */
+DemoModes = {
+    STREAM: 0,
+    REFRESH: 1,
+    GMAPS: 2
+};
+
+var demo_mode;
+var gmap;
+
 /* Utilities */
 function DemoStreamDataTarget(container, map) {
     this.init = function (items) {
@@ -79,6 +89,65 @@ function DemoStreamSetTarget(container, map) {
     };
 }
 
+function DemoMapsTrack() {
+    var polyline, path;
+
+    function item_to_latlng(item) {
+        return new google.maps.LatLng(item.data.latitude, item.data.longitude);
+    }
+
+    this.init = function (items) {
+        polyline = new google.maps.Polyline({
+            path: items.map(item_to_latlng),
+            map: gmap,
+            strokeColor: '#000000',
+            strokeWeight: 3,
+            strokeOpacity: 0.75
+        });
+        path = polyline.getPath();
+
+        if (items.length > 0) {
+            gmap.panTo(item_to_latlng(items[0]));
+            gmap.setZoom(8);
+        }
+    };
+    this.push = function (item) {
+        path.push(item_to_latlng(item));
+    };
+    this.insert = function (i, item) {
+        path.insertAt(i, item_to_latlng(item));
+    };
+    this.remove = function (i) {
+        path.removeAt(i);
+    };
+    this.set = function (i, item) {
+        path.setAt(i, item_to_latlng(item));
+    };
+    this.clear = function () {
+        polyline.setMap(null);
+        path.clear();
+    };
+}
+
+function DemoMapsTrackSetTarget() {
+    this.init = function (obj) {
+        for (var key in obj) {
+            this.set(key, obj[key]);
+        }
+    };
+
+    this.set = function (callsign, track) {
+        track.streamDataTo(new DemoMapsTrack());
+    };
+
+    this.remove = function (callsign) {
+        /* DemoMapsTrack can clean itself up */
+    };
+
+    this.clear = function () {
+    };
+}
+
 /* Demo globals */
 var tracking_flights = [];
 
@@ -111,6 +180,13 @@ function flight_map(flight) {
     return elem;
 }
 
+function refresh_flightlist(container, data) {
+    container.empty();
+    data.forEach(function (item) {
+        container.append(flight_map(item));
+    });
+}
+
 function track_map(callsign, track) {
     var elem = $("<div class='track' />");
 
@@ -131,10 +207,22 @@ function track_map(callsign, track) {
     var d = $("<div />");
     elem.append(d);
 
-    track.streamDataTo(new DemoStreamDataTarget(d, telem_map));
+    if (demo_mode == DemoModes.STREAM)
+        track.streamDataTo(new DemoStreamDataTarget(d, telem_map));
+    else if (demo_mode == DemoModes.REFRESH)
+        track.onDataChange(function (data) {
+            refresh_telemlist(d, data);
+        });
 
     flashlater(label);
     return elem;
+}
+
+function refresh_tracklist(container, data) {
+    container.empty();
+    for (var callsign in data) {
+        container.append(track_map(callsign, data[callsign]));
+    }
 }
 
 var telem_columns = ["count", "latitude", "longitude", "altitude"];
@@ -154,6 +242,13 @@ function telem_map(doc) {
     return elem;
 }
 
+function refresh_telemlist(container, data) {
+    container.empty();
+    data.forEach(function (item) {
+        container.append(telem_map(item));
+    });
+}
+
 /* Controlling stuff. */
 function flight_track_i(flight) {
     return tracking_flights.indexOf(flight._id);
@@ -164,24 +259,54 @@ function flight_track_toggle(flight) {
     if (i !== -1) {
         tracking_flights.splice(i, 1);
         flight.dm.reset();
-        $("#flight_" + flight._id).remove();
+        if (demo_mode != DemoModes.GMAPS)
+            $("#flight_" + flight._id).remove();
     } else {
         tracking_flights.push(flight._id);
         flight.dm.init();
 
-        var c = $("<div id='flight_" + flight._id + "' class='section' />");
-        $("#demo").append(c);
-        c.append($("<h2 />").text("Flight: " + flight.name));
+        if (demo_mode == DemoModes.GMAPS) {
+            flight.dm.streamSetTo(new DemoMapsTrackSetTarget());
+        } else {
+            var c = $("<div id='flight_" + flight._id + "' class='section' />");
+            $("#demo").append(c);
+            c.append($("<h2 />").text("Flight: " + flight.name));
 
-        var d = $("<div />");
-        c.append(d);
+            var d = $("<div />");
+            c.append(d);
 
-        flight.dm.streamSetTo(new DemoStreamSetTarget(d, track_map));
+            if (demo_mode == DemoModes.STREAM)
+                flight.dm.streamSetTo(new DemoStreamSetTarget(d, track_map));
+            else if (demo_mode == DemoModes.REFRESH)
+                flight.dm.onSetChange(function (data) {
+                    refresh_tracklist(d, data);
+                });
+        }
     }
 }
 
 /* Initialisation stuff */
-function demo_stream() {
+function run_demo() {
+    if (demo_mode == DemoModes.GMAPS) {
+        var demo_temp = $("#demo");
+        demo_temp.detach();
+        $("body").empty();
+        $("html").addClass("gmapsmode");
+
+        var mapcontainer = $("<div id='mapcontainer'>");
+        mapcontainer.addClass("fullscreen");
+        $("body").append(mapcontainer);
+
+        var centre = new google.maps.LatLng(52, 0);
+        gmap = new google.maps.Map(document.getElementById("mapcontainer"), {
+            zoom: 8,
+            center: centre,
+            mapTypeId: google.maps.MapTypeId.ROADMAP
+        });
+
+        $("body").append(demo_temp);
+    }
+
     var c = $("<div id='flightlist' class='section' />");
     $("#demo").append(c);
     c.append("<h2>Flight list and tracking enable</h2>");
@@ -190,11 +315,13 @@ function demo_stream() {
 
     var data = new HabitatDB("habitat");
     data.init();
-    data.streamDataTo(new DemoStreamDataTarget(container, flight_map));
-}
 
-function demo_refresh(elem) {
-    // TODO
+    if (demo_mode == DemoModes.STREAM || demo_mode == DemoModes.GMAPS)
+        data.streamDataTo(new DemoStreamDataTarget(container, flight_map));
+    else if (demo_mode == DemoModes.REFRESH)
+        data.onDataChange(function (data) {
+            refresh_flightlist(container, data);
+        });
 }
 
 function ask_mode() {
@@ -204,16 +331,26 @@ function ask_mode() {
             "<input id='modestream' type='button' value='Stream' />" +
             " or " +
             "<input id='moderefresh' type='button' value='Refresh' />" + 
+            " or " +
+            "<input id='modemaps' type='button' value='GMaps' />" + 
         "</div>");
 
-    $("#modestream").click(function () {
+    function go(mode) {
         $("#demo").empty();
-        demo_stream();
+        demo_mode = mode;
+        run_demo();
+    }
+
+    $("#modestream").click(function () {
+        go(DemoModes.STREAM);
     });
 
     $("#moderefresh").click(function () {
-        $("#demo").empty();
-        demo_refresh();
+        go(DemoModes.REFRESH);
+    });
+
+    $("#modemaps").click(function () {
+        go(DemoModes.GMAPS);
     });
 }
 
