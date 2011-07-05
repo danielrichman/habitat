@@ -176,6 +176,13 @@ function flight_map(flight) {
         ev.preventDefault();
     });
 
+    /* This isn't strictly the correct place for this, but it works */
+    if (flight_track_i(flight) !== -1) {
+        var c = $("#flight_" + flight._id);
+        var n = $(c.children()[0]);
+        n.text("Flight: " + flight.name);
+    }
+
     flashlater(elem);
     return elem;
 }
