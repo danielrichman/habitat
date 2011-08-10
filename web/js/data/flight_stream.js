@@ -58,7 +58,6 @@
  * StreamTarget()
  *   GMaps-Array-like, with addition of init
  *   .init(array) (clear, then push all in array)
- *   .push(elem)
  *   .insert(i, elem)
  *   .remove(i)
  *   .set(i, elem)
@@ -399,7 +398,6 @@ function flight_listener_telem_view_filter(doc, callsign, flight_id) {
            doc.relevant_flights &&
            doc.relevant_flights.indexOf(flight_id) !== -1;
 }
-
 
 function HabitatDB(db_name) {
     var habitat = this;
@@ -762,4 +760,30 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
 
     this.reset();
     this.setTrackList(initial_tracklist);
+}
+
+/* For Science. See tests/test_web/flight_stream_spec.js */
+if (exports && require("jasmine-node")) {
+    exports.UnsortedDocStore = UnsortedDocStore;
+    exports.SortedArraySync = SortedArraySync;
+    exports.sort_compare = sort_compare;
+    exports.flights_view_sort = flights_view_sort;
+    exports.flights_view_filter = flights_view_filter;
+    exports.flight_telem_view_sort = flight_telem_view_sort;
+    exports.flight_telem_view_filter_typeonly = 
+            flight_telem_view_filter_typeonly;
+    exports.flight_telem_view_filter = flight_telem_view_filter;
+    exports.flight_listener_docs_filter_typeonly =
+            flight_listener_docs_filter_typeonly;
+    exports.flight_listener_docs_filter = flight_listener_docs_filter;
+    exports.flight_listener_telem_view_sort = flight_listener_telem_view_sort;
+    exports.flight_listener_telem_view_filter_typeonly =
+            flight_listener_telem_view_filter_typeonly;
+    exports.flight_listener_telem_view_filter =
+            flight_listener_telem_view_filter;
+    exports.HabitatDB = HabitatDB;
+    exports.FlightDataManager = FlightDataManager;
+
+    jQuery = $ = { couch: { db: function() { } } };
+    exports.jQuery = jQuery;
 }

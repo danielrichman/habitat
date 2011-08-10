@@ -31,11 +31,9 @@ var gmap;
 function DemoStreamDataTarget(container, map) {
     this.init = function (items) {
         /* this.clear(); */
-        items.forEach(this.push);
-    }
-
-    this.push = function (item) {
-        container.append(map(item));
+        items.forEach(function (item) {
+            container.append(map(item));
+        });
     }
 
     this.insert = function (i, item) {
@@ -110,9 +108,6 @@ function DemoMapsTrack() {
             gmap.panTo(item_to_latlng(items[0]));
             gmap.setZoom(8);
         }
-    };
-    this.push = function (item) {
-        path.push(item_to_latlng(item));
     };
     this.insert = function (i, item) {
         path.insertAt(i, item_to_latlng(item));
