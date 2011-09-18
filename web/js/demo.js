@@ -124,7 +124,7 @@ function DemoMapsTrack() {
     };
 }
 
-function DemoMapsTrackSetTarget() {
+function DemoMapsTrackSetTarget(flight_id, overlay) {
     this.init = function (obj) {
         for (var key in obj) {
             this.set(key, obj[key]);
@@ -133,10 +133,19 @@ function DemoMapsTrackSetTarget() {
 
     this.set = function (callsign, track) {
         track.streamDataTo(new DemoMapsTrack());
+
+        var d = $("<div id='overlay_" + flight_id + "_" + callsign + "' />");
+        overlay.append(d);
+
+        track.onDataChange(function (data) {
+            refresh_flightoverlay(d, data[data.length - 1]);
+        });
     };
 
     this.remove = function (callsign) {
         /* DemoMapsTrack can clean itself up */
+
+        $("#overlay_" + flight_id + "_" + callsign).remove();
     };
 
     this.clear = function () {
@@ -283,6 +292,73 @@ function telem_map(doc, callsign, track, flight) {
     return elem;
 }
 
+var flightoverlay_names = {
+    "count": "Count",
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "altitude": "Altitude"
+}
+
+function refresh_flightoverlay(container, last_doc) {
+    container.empty();
+
+    if (!last_doc || !last_doc.data || !last_doc.receivers)
+    {
+        container.append("Loading...");
+        return;
+    }
+
+    container.append($("<div class='callsign' />").text(last_doc.data.payload));
+
+    function twodgts(part) {
+        var n = part.toString();
+        if (n.length == 1)
+            n = "0" + n;
+        return n;
+    }
+
+    var time_parts = last_doc.data.time;
+    var time = twodgts(time_parts.hour) + ":" +
+               twodgts(time_parts.minute) + ":" + 
+               twodgts(time_parts.second);
+
+    var r = $("<div />");
+    r.append($("<span class='telem_key' />").text("Time: "));
+    r.append($("<span />").text(time));
+    container.append(r);
+
+    numeric_telem_columns.forEach(function (k) {
+        var s = last_doc.data[k];
+        if (s === undefined)
+            s = "n/a";
+        else if (Math.round(s) != s)
+            s = s.toFixed(4);
+        var r = $("<div />");
+        r.append($("<span class='telem_key' />").text(flightoverlay_names[k] + ": "))
+        r.append($("<span />").text(s));
+        container.append(r);
+    });
+
+    var r = $("<div />");
+    r.append($("<span class='telem_key' />").text("Receivers: "));
+
+    var receivers = [];
+    for (var callsign in last_doc.receivers) {
+        receivers.push(callsign);
+    }
+    receivers.sort();
+
+    var rl = $("<div class='receiver_list' />");
+
+    receivers.forEach(function (callsign) {
+        rl.append($("<span />").text(callsign));
+        rl.append(" ");
+    });
+
+    r.append(rl);
+    container.append(r);
+}
+
 function refresh_telemlist(container, data, callsign, track, flight) {
     container.empty();
     data.forEach(function (item) {
@@ -300,21 +376,19 @@ function flight_track_toggle(flight) {
     if (i !== -1) {
         tracking_flights.splice(i, 1);
         flight.dm.reset();
-        if (demo_mode != DemoModes.GMAPS)
-            $("#flight_" + flight._id).remove();
+        $("#flight_" + flight._id).remove();
     } else {
         tracking_flights.push(flight._id);
         flight.dm.init();
 
-        if (demo_mode == DemoModes.GMAPS) {
-            flight.dm.streamSetTo(new DemoMapsTrackSetTarget());
-        } else {
-            var c = $("<div id='flight_" + flight._id + "' class='section' />");
-            $("#demo").append(c);
-            c.append($("<h2 />").text("Flight: " + flight.name));
+        var c = $("<div id='flight_" + flight._id + "' class='section' />");
+        c.append($("<h2 />").text("Flight: " + flight.name));
 
-            var d = $("<div />");
-            c.append(d);
+        if (demo_mode == DemoModes.GMAPS) {
+            flight.dm.streamSetTo(new DemoMapsTrackSetTarget(flight._id, c));
+            $("#overlay").append(c);
+        } else {
+            $("#demo").append(c);
 
             if (demo_mode == DemoModes.STREAM) {
                 function ftm(callsign, track) {
@@ -353,8 +427,17 @@ function run_demo() {
         $("body").append(demo_temp);
     }
 
+    var o;
+
+    if (demo_mode == DemoModes.GMAPS) {
+        o = $("<div id='overlay'>");
+        $("#demo").append(o);
+    } else {
+        o = $("#demo");
+    }
+
     var c = $("<div id='flightlist' class='section' />");
-    $("#demo").append(c);
+    o.append(c);
     c.append("<h2>Flight list and tracking enable</h2>");
     c.append("<ul />");
     var container = $(c.children()[1]);

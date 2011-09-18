@@ -91,18 +91,50 @@ div.fullscreen
     text-decoration: line-through;
 }
 
-html.gmapsmode div#flightlist
+html.gmapsmode div#overlay
 {
     position: absolute;
-    top: 0px;
-    left: 0px;
+    top: 20px;
+    right: 0px;
+    width: 400px;
+}
+
+html.gmapsmode div#overlay > div
+{
+    margin: 20px;
     padding-right: 20px;
     font-size: 75%;
     background-color: white;
     opacity: 0.8;
 }
 
+html.gmapsmode div#flightlist
+{
+    overflow-y: scroll;
+    height: 300px;
+}
+
 html.gmapsmode span.flightname
 {
     width: 150px;
+}
+
+html.gmapsmode span.telem_key
+{
+    font-weight: bold;
+    width: 100px;
+    display: inline-block;
+}
+
+html.gmapsmode div.callsign
+{
+    font-weight: bold;
+    font-size: 110%;
+}
+
+html.gmapsmode div.receiver_list
+{
+    display: inline-block;
+    vertical-align: top;
+    width: 200px;
 }

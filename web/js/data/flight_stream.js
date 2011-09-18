@@ -239,6 +239,7 @@ function SortedArraySync(settings) {
         }
 
         var new_data = [];
+        var changed_something = false;
 
         changes.forEach(function (change) {
             var doc = change.doc;
@@ -257,6 +258,8 @@ function SortedArraySync(settings) {
                  deleted = true;
 
             if (!deleted) {
+                changed_something = true;
+
                 if (old_pos === -1) {
                     /* insertion */
                     if (settings.update_map)
@@ -281,6 +284,8 @@ function SortedArraySync(settings) {
                     }
                 }
             } else if (old_pos !== -1) {
+                changed_something = true;
+
                 /* deletion */
                 data_remove(old_pos);
             }
@@ -304,9 +309,11 @@ function SortedArraySync(settings) {
             }
         });
 
-        changeCallbacks.forEach(function (elem) {
-            elem(data);
-        });
+        if (changed_something) {
+            changeCallbacks.forEach(function (elem) {
+                elem(data);
+            });
+        }
     };
 
     this.addChangeCallback = function (cb) {
@@ -351,7 +358,14 @@ function sort_compare(a, b) {
  * From couchdb/habitat/views/flights/map.js. Keep this updated.
  */
 function flights_view_sort(a, b) {
-    return sort_compare(a.launch.time, b.launch.time);
+    function st(doc) {
+        if (doc.launch && doc.launch.time)
+            return doc.launch.time;
+        else
+            return doc.start;
+    }
+
+    return sort_compare(st(a), st(b));
 }
 
 function flights_view_filter(doc) {
@@ -361,17 +375,56 @@ function flights_view_filter(doc) {
 /*
  * Related to couchdb/habitat/views/all_flight_info
  */
+function flight_estimated_time_map(doc) {
+    var sum_x = 0, sum_x2 = 0, n = 0;
+
+    for (var callsign in doc.receivers)
+    {
+        var x = doc.receivers[callsign].time_created;
+        sum_x += x;
+        sum_x2 += (x * x);
+        n++;
+    }
+
+    var mean = sum_x / n;
+    var std_dev = Math.sqrt((sum_x2 / n) - (mean * mean));
+
+    var new_sum_x = 0, new_n = 0;
+
+    for (var callsign in doc.receivers)
+    {
+        var x = doc.receivers[callsign].time_created;
+
+        if (Math.abs(x - mean) > std_dev)
+            continue;
+
+        new_sum_x += x;
+        new_n++;
+    }
+
+    var estimated_received_time;
+    if (new_n != 0)
+        estimated_received_time = (new_sum_x / new_n);
+    else
+        estimated_received_time = mean;
+
+    doc.estimated_time_created = estimated_received_time;
+    return doc;
+}
+
 function flight_telem_view_sort(a, b) {
     return sort_compare(a.estimated_time_created, b.estimated_time_created);
 }
 
 function flight_telem_view_filter_typeonly(doc, callsign) {
-    return doc.type === "payload_telemetry" && doc.data.payload === callsign;
+    return doc.type === "payload_telemetry" && doc.data.payload === callsign &&
+           !(doc.data.latitude == 0 && doc.data.longitude == 0);
 }
 
 function flight_telem_view_filter(doc, callsign, flight_id) {
     return doc.type === "payload_telemetry" && doc.data.payload === callsign &&
-           doc.data._flight && doc.data._flight === flight_id;
+           doc.data._flight && doc.data._flight === flight_id &&
+           !(doc.data.latitude == 0 && doc.data.longitude == 0);
 }
 
 function flight_listener_docs_filter_typeonly(doc) {
@@ -428,7 +481,7 @@ function HabitatDB(db_name) {
             if (state !== States.SETUP || load_id !== my_load_id)
                 return; /* Aborted */
 
-            db.view("habitat/flights", { success: function (data) {
+            db.view("testing_web/flights", { success: function (data) {
                 if (state !== States.SETUP || load_id !== my_load_id)
                     return;
 
@@ -597,7 +650,7 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
             if (state !== States.SETUP || load_id !== my_load_id)
                 return;
 
-            db.view("habitat/all_flight_info", { success: function (data) {
+            db.view("testing_web/all_flight_info", { success: function (data) {
                 if (state !== States.SETUP || load_id !== my_load_id)
                     return;
 
@@ -659,12 +712,15 @@ function FlightDataManager(db, habitat, flight_id, initial_tracklist) {
                                elem.value, callsign);
                 },
                 init_map: function (elem) {
-                    return elem.value;
+                    return flight_estimated_time_map(elem.value);
                 },
                 init_sort: flight_telem_view_sort,
                 update_sort: flight_telem_view_sort,
                 update_filter: function (doc) {
                     return flight_telem_view_filter(doc, callsign, flight_id);
+                },
+                update_map: function (doc, old_doc) {
+                    return flight_estimated_time_map(doc);
                 }
            });
         }
