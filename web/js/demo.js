@@ -389,6 +389,8 @@ function flight_track_toggle(flight) {
             $("#overlay").append(c);
         } else {
             $("#demo").append(c);
+            var d = $("<div />");
+            c.append(d);
 
             if (demo_mode == DemoModes.STREAM) {
                 function ftm(callsign, track) {
