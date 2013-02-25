@@ -85,7 +85,11 @@ def _is_equal_relaxed_floats(a, b):
         # string, int, bool, None, ...
         return a == b
 
-@version(1)
+# Schema changes:
+# _parsed - add imported key, make payload_configuration,
+# configuration_sentence_index optional
+
+@version(2)
 @only_validates("payload_telemetry")
 def validate(new, old, userctx, secobj):
     """
@@ -108,15 +112,41 @@ def validate(new, old, userctx, secobj):
     if '_admin' in userctx['roles']:
         return
 
+    if '_raw' in new['data']:
+        _validate_radio_telemetry_form(new, old, userctx, secobj)
+        _validate_radio_telemetry_change(new, old, userctx, secobj)
+    elif new['data'].get('_parsed', {}).get('imported', False):
+        _validate_imported_telemetry_form(new, old, userctx, secobj)
+        _validate_imported_telemetry_change(new, old, userctx, secobj)
+    else:
+        raise ForbiddenError("telemetry was neither radio nor imported")
+
+def _validate_radio_telemetry_form(new, old, userctx, secobj):
     expect_id = hashlib.sha256(new['data']['_raw']).hexdigest()
     if '_id' not in new or new['_id'] != expect_id:
-        raise ForbiddenError("Document ID must be sha256(base64 _raw data)")
+        raise ForbiddenError("Document ID must be sha256(base64 _raw)")
 
+    unparsed = new['data'].keys() == ['_raw']
+    parsed = set(['_raw', '_parsed', 'payload', '_protocol']) 
+                    < set(new['data'])
+
+    if not unparsed or parsed:
+        raise ForbiddenError("radio payload_telemetry doc is neither "
+                "parsed nor unparsed")
+
+    if parsed:
+        if not set(['payload_configuration', 'configuration_sentence_index')
+                < set(new['data']['_parsed']):
+            raise ForbiddenError("keys missing from data['_parsed']: "
+                "payload_configuration, configuration_sentence_index")
+
+def _validate_radio_telemetry_change(new, old, userctx, secobj):
     if old:
         if 'parser' not in userctx['roles'] and \
            not _is_equal_relaxed_floats(new['data'], old['data']):
             raise UnauthorizedError("Only the parser may add data to an"
                                     " existing document.")
+
         for receiver in old['receivers']:
             if (receiver not in new['receivers'] or
                new['receivers'][receiver] != old['receivers'][receiver]):
@@ -125,9 +155,29 @@ def validate(new, old, userctx, secobj):
         if len(new['receivers']) != 1:
             raise ForbiddenError("New documents must have exactly one"
                                  "receiver.")
-        if new['data'].keys() != ['_raw']:
-            raise ForbiddenError("New documents may only have _raw in data.")
 
+        if new['data'].keys() != ['_raw']:
+            raise ForbiddenError("New documents may only have _raw "
+                    "in data.")
+
+def _validate_imported_telemetry_form(new, old, userctx, secobj):
+    if not set(['_parsed', 'payload']) < set(new['data']):
+        raise ForbiddenError("Missing keys: _parsed, payload")
+            
+    if 'imported' not in new['data']['_parsed']:
+        raise ForbiddenError
+
+    if len(new['receivers']) != 1:
+        raise ForbiddenError("Documents must have exactly one receiver.")
+
+def _validate_imported_telemetry_change(new, old, userctx, secobj):
+    if old:
+        raise UnauthorizedError("Imported telemetry may not be modified")
+
+    else:
+        if 'importer' not in userctx['roles']:
+            raise UnauthorizedError("Only a import daemon may create "
+                    "parsed payload_telemetry documents")
 
 def _estimate_time_received(receivers):
     sum_x, sum_x2, n = 0, 0, 0
