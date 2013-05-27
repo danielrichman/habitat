@@ -134,26 +134,39 @@ def validate(new, old, userctx, secobj):
                                  "_fallbacks in data.")
 
 
+def _receiver_time_weight(receiver):
+    time_created = rfc3339_to_timestamp(receiver['time_created'])
+
+    if "time_server" in receiver:
+        time_server = rfc3339_to_timestamp(receiver['time_server'])
+        time_uploaded = rfc3339_to_timestamp(receiver['time_uploaded'])
+        correction = time_server - time_uploaded
+        time_created += correction
+        weight = 4
+    else:
+        weight = 1
+
+    return time_created, weight
+
 def _estimate_time_received(receivers):
+    receivers = [_receiver_time_weight(i) for i in receivers]
     sum_x, sum_x2, n = 0, 0, 0
 
-    for callsign in receivers:
-        x = rfc3339_to_timestamp(receivers[callsign]['time_created'])
-        sum_x += x
-        sum_x2 += x * x
-        n += 1
+    for time, weight in receivers:
+        sum_x += time * weight
+        sum_x2 += time * time * weight
+        n += weight
 
     mean = sum_x / n
     std_dev = math.sqrt((sum_x2 / n) - (mean * mean))
 
     new_sum_x, new_n = 0, 0
 
-    for callsign in receivers:
-        x = rfc3339_to_timestamp(receivers[callsign]['time_created'])
-        if abs(x - mean) > std_dev:
+    for time, weight in receivers:
+        if abs(time - mean) > std_dev:
             continue
-        new_sum_x += x
-        new_n += 1
+        new_sum_x += time * weight
+        new_n += weight
 
     return new_sum_x / new_n if new_n != 0 else mean
 
